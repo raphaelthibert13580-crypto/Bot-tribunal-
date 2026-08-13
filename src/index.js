@@ -1,9 +1,11 @@
 const {
   Client,
   GatewayIntentBits,
-  Collection,
   Events
 } = require("discord.js");
+
+const fs = require("fs");
+const path = require("path");
 
 const TOKEN = process.env.DISCORD_TOKEN;
 
@@ -12,23 +14,66 @@ if (!TOKEN) {
   process.exit(1);
 }
 
-const db = new Database(process.env.DB_PATH || "tribunal.db");
+// ==========================
+// BASE DE DONNÉES JSON
+// ==========================
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS plaintes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    plaignant TEXT NOT NULL,
-    accuse TEXT NOT NULL,
-    motif TEXT NOT NULL,
-    description TEXT NOT NULL,
-    statut TEXT NOT NULL DEFAULT 'En attente',
-    juge TEXT,
-    peine TEXT,
-    raison TEXT,
-    created_at TEXT NOT NULL,
-    verdict_at TEXT
-  )
-`);
+const DATA_DIR = process.env.DATA_DIR || ".";
+const DATA_FILE = path.join(DATA_DIR, "plaintes.json");
+
+if (!fs.existsSync(DATA_DIR) && DATA_DIR !== ".") {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+function loadData() {
+  try {
+    if (!fs.existsSync(DATA_FILE)) {
+      fs.writeFileSync(DATA_FILE, "[]", "utf8");
+      return [];
+    }
+
+    const content = fs.readFileSync(DATA_FILE, "utf8");
+
+    if (!content.trim()) {
+      return [];
+    }
+
+    return JSON.parse(content);
+  } catch (error) {
+    console.error("❌ Impossible de charger les plaintes :", error);
+    return [];
+  }
+}
+
+function saveData(data) {
+  try {
+    fs.writeFileSync(
+      DATA_FILE,
+      JSON.stringify(data, null, 2),
+      "utf8"
+    );
+  } catch (error) {
+    console.error("❌ Impossible de sauvegarder les plaintes :", error);
+  }
+}
+
+let plaintes = loadData();
+
+function nextId() {
+  if (plaintes.length === 0) {
+    return 1;
+  }
+
+  return Math.max(...plaintes.map(p => p.id)) + 1;
+}
+
+function getPlainte(id) {
+  return plaintes.find(p => p.id === id);
+}
+
+// ==========================
+// CLIENT DISCORD
+// ==========================
 
 const client = new Client({
   intents: [
@@ -37,19 +82,42 @@ const client = new Client({
   ]
 });
 
+// ==========================
+// PERMISSIONS
+// ==========================
+
 function estJuge(member) {
-  return member.roles.cache.some(role => role.name === "Juge");
+  return member.roles.cache.some(
+    role => role.name === "Juge"
+  );
 }
 
-client.once(Events.ClientReady, (bot) => {
+// ==========================
+// BOT PRÊT
+// ==========================
+
+client.once(Events.ClientReady, bot => {
   console.log(`⚖️ Tribunal en ligne : ${bot.user.tag}`);
+  console.log(`📁 ${plaintes.length} plainte(s) chargée(s).`);
 });
 
-client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
+// ==========================
+// COMMANDES
+// ==========================
+
+client.on(Events.InteractionCreate, async interaction => {
+  if (!interaction.isChatInputCommand()) {
+    return;
+  }
 
   try {
+
+    // ==========================
+    // /plainte
+    // ==========================
+
     if (interaction.commandName === "plainte") {
+
       if (estJuge(interaction.member)) {
         return interaction.reply({
           content: "❌ Un Juge ne peut pas déposer de plainte.",
@@ -57,26 +125,36 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
       }
 
-      const accuse = interaction.options.getUser("accuse");
-      const motif = interaction.options.getString("motif");
-      const description = interaction.options.getString("description");
+      const accuse =
+        interaction.options.getUser("accuse");
 
-      const result = db.prepare(`
-        INSERT INTO plaintes
-        (plaignant, accuse, motif, description, created_at)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(
-        interaction.user.id,
-        accuse.id,
+      const motif =
+        interaction.options.getString("motif");
+
+      const description =
+        interaction.options.getString("description");
+
+      const plainte = {
+        id: nextId(),
+        plaignant: interaction.user.id,
+        accuse: accuse.id,
         motif,
         description,
-        new Date().toISOString()
-      );
+        statut: "En attente",
+        juge: null,
+        peine: null,
+        raison: null,
+        created_at: new Date().toISOString(),
+        verdict_at: null
+      };
+
+      plaintes.push(plainte);
+      saveData(plaintes);
 
       return interaction.reply({
         content:
-          `⚖️ **Plainte enregistrée !**\n\n` +
-          `📁 Affaire : **#${result.lastInsertRowid}**\n` +
+          `⚖️ **PLAINTE ENREGISTRÉE**\n\n` +
+          `📁 Affaire : **#${plainte.id}**\n` +
           `👤 Plaignant : ${interaction.user}\n` +
           `👤 Accusé : ${accuse}\n` +
           `📌 Motif : **${motif}**\n` +
@@ -85,18 +163,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
       });
     }
 
+    // ==========================
+    // /plaintes
+    // ==========================
+
     if (interaction.commandName === "plaintes") {
+
       if (!estJuge(interaction.member)) {
         return interaction.reply({
-          content: "❌ Cette commande est réservée au rôle **Juge**.",
+          content:
+            "❌ Cette commande est réservée au rôle **Juge**.",
           ephemeral: true
         });
       }
-
-      const plaintes = db.prepare(`
-        SELECT * FROM plaintes
-        ORDER BY id DESC
-      `).all();
 
       if (plaintes.length === 0) {
         return interaction.reply({
@@ -105,57 +184,69 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
       }
 
-      const texte = plaintes.map(p =>
-        `**#${p.id}** — ${p.statut}\n` +
-        `👤 Accusé : <@${p.accuse}>\n` +
-        `📌 Motif : ${p.motif}`
-      ).join("\n\n");
+      const liste = plaintes
+        .slice()
+        .reverse()
+        .map(p =>
+          `**#${p.id}** — ${p.statut}\n` +
+          `👤 Accusé : <@${p.accuse}>\n` +
+          `📌 Motif : ${p.motif}`
+        )
+        .join("\n\n");
 
       return interaction.reply({
-        content: `⚖️ **Plaintes du Tribunal**\n\n${texte}`,
+        content:
+          `⚖️ **PLAINTES DU TRIBUNAL**\n\n${liste}`,
         ephemeral: true
       });
     }
 
+    // ==========================
+    // /audience
+    // ==========================
+
     if (interaction.commandName === "audience") {
+
       if (!estJuge(interaction.member)) {
         return interaction.reply({
-          content: "❌ Cette commande est réservée au rôle **Juge**.",
+          content:
+            "❌ Cette commande est réservée au rôle **Juge**.",
           ephemeral: true
         });
       }
 
-      const id = interaction.options.getInteger("id");
+      const id =
+        interaction.options.getInteger("id");
 
-      const plainte = db.prepare(
-        "SELECT * FROM plaintes WHERE id = ?"
-      ).get(id);
+      const plainte = getPlainte(id);
 
       if (!plainte) {
         return interaction.reply({
-          content: "❌ Cette affaire n'existe pas.",
+          content:
+            "❌ Cette affaire n'existe pas.",
           ephemeral: true
         });
       }
 
       if (plainte.statut === "Fermée") {
         return interaction.reply({
-          content: "❌ Cette affaire est déjà fermée.",
+          content:
+            "❌ Cette affaire est déjà fermée.",
           ephemeral: true
         });
       }
 
-      db.prepare(`
-        UPDATE plaintes
-        SET statut = 'Audience ouverte', juge = ?
-        WHERE id = ?
-      `).run(interaction.user.id, id);
+      plainte.statut = "Audience ouverte";
+      plainte.juge = interaction.user.id;
+
+      saveData(plaintes);
 
       return interaction.reply({
         content:
           `⚖️ **OUVERTURE DE L'AUDIENCE**\n\n` +
           `Le Tribunal est officiellement réuni.\n` +
           `L'accusé est appelé à comparaître.\n\n` +
+          `━━━━━━━━━━━━━━━━━━\n\n` +
           `📁 **Affaire #${id}**\n` +
           `👤 Accusé : <@${plainte.accuse}>\n` +
           `👤 Plaignant : <@${plainte.plaignant}>\n` +
@@ -166,103 +257,137 @@ client.on(Events.InteractionCreate, async (interaction) => {
       });
     }
 
-    if (
-      interaction.commandName === "condamner" ||
-      interaction.commandName === "acquitter"
-    ) {
+    // ==========================
+    // /condamner
+    // ==========================
+
+    if (interaction.commandName === "condamner") {
+
       if (!estJuge(interaction.member)) {
         return interaction.reply({
-          content: "❌ Cette commande est réservée au rôle **Juge**.",
+          content:
+            "❌ Cette commande est réservée au rôle **Juge**.",
           ephemeral: true
         });
       }
 
-      const id = interaction.options.getInteger("id");
+      const id =
+        interaction.options.getInteger("id");
 
-      const plainte = db.prepare(
-        "SELECT * FROM plaintes WHERE id = ?"
-      ).get(id);
+      const peine =
+        interaction.options.getString("peine");
+
+      const plainte = getPlainte(id);
 
       if (!plainte) {
         return interaction.reply({
-          content: "❌ Cette affaire n'existe pas.",
+          content:
+            "❌ Cette affaire n'existe pas.",
           ephemeral: true
         });
       }
 
       if (plainte.statut === "Fermée") {
         return interaction.reply({
-          content: "❌ Cette affaire est déjà fermée.",
+          content:
+            "❌ Cette affaire est déjà fermée.",
           ephemeral: true
         });
       }
 
-      if (interaction.commandName === "condamner") {
-        const peine = interaction.options.getString("peine");
+      plainte.statut = "Coupable / Condamné";
+      plainte.juge = interaction.user.id;
+      plainte.peine = peine;
+      plainte.verdict_at = new Date().toISOString();
 
-        db.prepare(`
-          UPDATE plaintes
-          SET statut = 'Coupable / Condamné',
-              juge = ?,
-              peine = ?,
-              verdict_at = ?
-          WHERE id = ?
-        `).run(
-          interaction.user.id,
-          peine,
-          new Date().toISOString(),
-          id
-        );
-
-        return interaction.reply({
-          content:
-            `⚖️ **VERDICT DU TRIBUNAL**\n\n` +
-            `📁 Affaire : **#${id}**\n` +
-            `👤 Accusé : <@${plainte.accuse}>\n` +
-            `👤 Plaignant : <@${plainte.plaignant}>\n\n` +
-            `🔨 Verdict : **COUPABLE**\n\n` +
-            `📜 Peine : ${peine}\n\n` +
-            `⚖️ Jugement rendu par ${interaction.user}`
-        });
-      }
-
-      const raison = interaction.options.getString("raison");
-
-      db.prepare(`
-        UPDATE plaintes
-        SET statut = 'Acquitté',
-            juge = ?,
-            raison = ?,
-            verdict_at = ?
-        WHERE id = ?
-      `).run(
-        interaction.user.id,
-        raison,
-        new Date().toISOString(),
-        id
-      );
+      saveData(plaintes);
 
       return interaction.reply({
         content:
           `⚖️ **VERDICT DU TRIBUNAL**\n\n` +
           `📁 Affaire : **#${id}**\n` +
-          `👤 Accusé : <@${plainte.accuse}>\n\n` +
-          `✅ Verdict : **ACQUITTÉ**\n\n` +
-          `📄 Raison : ${raison}\n\n` +
-          `⚖️ Jugement rendu par ${interaction.user}`
+          `👤 Accusé : <@${plainte.accuse}>\n` +
+          `👤 Plaignant : <@${plainte.plaignant}>\n\n` +
+          `🔨 Verdict : **COUPABLE**\n\n` +
+          `📜 Peine : ${peine}\n\n` +
+          `⚖️ Jugement rendu par ${interaction.user}\n\n` +
+          `🔔 L'affaire peut maintenant être fermée avec \`/fermer\`.`
       });
     }
 
-    if (interaction.commandName === "verdict") {
-      const id = interaction.options.getInteger("id");
+    // ==========================
+    // /acquitter
+    // ==========================
 
-      const plainte = db.prepare(
-        "SELECT * FROM plaintes WHERE id = ?"
-      ).get(id);
+    if (interaction.commandName === "acquitter") {
+
+      if (!estJuge(interaction.member)) {
+        return interaction.reply({
+          content:
+            "❌ Cette commande est réservée au rôle **Juge**.",
+          ephemeral: true
+        });
+      }
+
+      const id =
+        interaction.options.getInteger("id");
+
+      const raison =
+        interaction.options.getString("raison");
+
+      const plainte = getPlainte(id);
 
       if (!plainte) {
         return interaction.reply({
-          content: "❌ Cette affaire n'existe pas.",
+          content:
+            "❌ Cette affaire n'existe pas.",
+          ephemeral: true
+        });
+      }
+
+      if (plainte.statut === "Fermée") {
+        return interaction.reply({
+          content:
+            "❌ Cette affaire est déjà fermée.",
+          ephemeral: true
+        });
+      }
+
+      plainte.statut = "Acquitté";
+      plainte.juge = interaction.user.id;
+      plainte.raison = raison;
+      plainte.verdict_at = new Date().toISOString();
+
+      saveData(plaintes);
+
+      return interaction.reply({
+        content:
+          `⚖️ **VERDICT DU TRIBUNAL**\n\n` +
+          `📁 Affaire : **#${id}**\n` +
+          `👤 Accusé : <@${plainte.accuse}>\n` +
+          `👤 Plaignant : <@${plainte.plaignant}>\n\n` +
+          `✅ Verdict : **ACQUITTÉ**\n\n` +
+          `📄 Raison : ${raison}\n\n` +
+          `⚖️ Jugement rendu par ${interaction.user}\n\n` +
+          `🔔 L'affaire peut maintenant être fermée avec \`/fermer\`.`
+      });
+    }
+
+    // ==========================
+    // /verdict
+    // ==========================
+
+    if (interaction.commandName === "verdict") {
+
+      const id =
+        interaction.options.getInteger("id");
+
+      const plainte = getPlainte(id);
+
+      if (!plainte) {
+        return interaction.reply({
+          content:
+            "❌ Cette affaire n'existe pas.",
           ephemeral: true
         });
       }
@@ -275,11 +400,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
         `📊 Statut : **${plainte.statut}**`;
 
       if (plainte.peine) {
-        texte += `\n🔨 Peine : ${plainte.peine}`;
+        texte +=
+          `\n🔨 Peine : ${plainte.peine}`;
       }
 
       if (plainte.raison) {
-        texte += `\n📄 Raison : ${plainte.raison}`;
+        texte +=
+          `\n📄 Raison : ${plainte.raison}`;
+      }
+
+      if (plainte.juge) {
+        texte +=
+          `\n⚖️ Juge : <@${plainte.juge}>`;
       }
 
       return interaction.reply({
@@ -288,51 +420,68 @@ client.on(Events.InteractionCreate, async (interaction) => {
       });
     }
 
+    // ==========================
+    // /fermer
+    // ==========================
+
     if (interaction.commandName === "fermer") {
+
       if (!estJuge(interaction.member)) {
         return interaction.reply({
-          content: "❌ Cette commande est réservée au rôle **Juge**.",
+          content:
+            "❌ Cette commande est réservée au rôle **Juge**.",
           ephemeral: true
         });
       }
 
-      const id = interaction.options.getInteger("id");
+      const id =
+        interaction.options.getInteger("id");
 
-      const plainte = db.prepare(
-        "SELECT * FROM plaintes WHERE id = ?"
-      ).get(id);
+      const plainte = getPlainte(id);
 
       if (!plainte) {
         return interaction.reply({
-          content: "❌ Cette affaire n'existe pas.",
+          content:
+            "❌ Cette affaire n'existe pas.",
           ephemeral: true
         });
       }
 
-      db.prepare(`
-        UPDATE plaintes
-        SET statut = 'Fermée'
-        WHERE id = ?
-      `).run(id);
+      if (plainte.statut === "Fermée") {
+        return interaction.reply({
+          content:
+            "❌ Cette affaire est déjà fermée.",
+          ephemeral: true
+        });
+      }
+
+      plainte.statut = "Fermée";
+
+      saveData(plaintes);
 
       return interaction.reply({
         content:
           `🔒 **AFFAIRE FERMÉE**\n\n` +
-          `L'affaire **#${id}** est maintenant officiellement fermée.\n` +
+          `L'affaire **#${id}** est maintenant officiellement fermée.\n\n` +
           `⚖️ Fermée par ${interaction.user}`
       });
     }
 
+    // ==========================
+    // /aide
+    // ==========================
+
     if (interaction.commandName === "aide") {
+
       return interaction.reply({
         content:
-          `⚖️ **COMMANDES DU TRIBUNAL**\n\n` +
+          `⚖️ **TRIBUNAL — COMMANDES**\n\n` +
           `📋 \`/plainte\` — Déposer une plainte\n` +
           `📁 \`/plaintes\` — Voir les plaintes (Juge)\n` +
           `⚖️ \`/audience\` — Ouvrir une audience (Juge)\n` +
-          `🔨 \`/condamner\` — Condamner un accusé (Juge)\n` +
-          `✅ \`/acquitter\` — Acquitter un accusé (Juge)\n` +
-          `📜 \`/verdict\` — Consulter un verdict\n` +
+          `🔨 \`/condamner\` — Condamner (Juge)\n` +
+          `✅ \`/acquitter\` — Acquitter (Juge)\n` +
+          `📜 \`/verdict\` — Voir un verdict\n` +
           `🔒 \`/fermer\` — Fermer une affaire (Juge)\n` +
           `❓ \`/aide\` — Afficher cette aide`,
         ephemeral: true
@@ -340,18 +489,36 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
   } catch (error) {
-    console.error(error);
+
+    console.error(
+      "❌ Erreur pendant l'exécution d'une commande :",
+      error
+    );
 
     if (!interaction.replied && !interaction.deferred) {
       await interaction.reply({
-        content: "❌ Une erreur est survenue.",
+        content:
+          "❌ Une erreur est survenue pendant l'exécution de la commande.",
         ephemeral: true
       });
     }
   }
 });
 
-process.on("unhandledRejection", console.error);
-process.on("uncaughtException", console.error);
+// ==========================
+// GESTION DES ERREURS
+// ==========================
+
+process.on("unhandledRejection", error => {
+  console.error("❌ Unhandled Rejection :", error);
+});
+
+process.on("uncaughtException", error => {
+  console.error("❌ Uncaught Exception :", error);
+});
+
+// ==========================
+// CONNEXION
+// ==========================
 
 client.login(TOKEN);
