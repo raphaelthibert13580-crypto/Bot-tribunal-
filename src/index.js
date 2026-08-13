@@ -5,8 +5,6 @@ const {
   Events
 } = require("discord.js");
 
-const Database = require("better-sqlite3");
-
 const TOKEN = process.env.DISCORD_TOKEN;
 
 if (!TOKEN) {
