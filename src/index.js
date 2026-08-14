@@ -857,5 +857,46 @@ client.on(
       );
 
       if (
-        !interaction.replied &&
-        
+  !interaction.replied &&
+  !interaction.deferred
+) {
+  await interaction.reply({
+    content:
+      "❌ Une erreur est survenue pendant l'exécution de la commande.",
+    ephemeral: true
+  });
+}
+
+    }
+  }
+);
+
+// ==========================
+// ERREURS
+// ==========================
+
+process.on(
+  "unhandledRejection",
+  error => {
+    console.error(
+      "❌ Unhandled Rejection :",
+      error
+    );
+  }
+);
+
+process.on(
+  "uncaughtException",
+  error => {
+    console.error(
+      "❌ Uncaught Exception :",
+      error
+    );
+  }
+);
+
+// ==========================
+// CONNEXION
+// ==========================
+
+client.login(TOKEN);
