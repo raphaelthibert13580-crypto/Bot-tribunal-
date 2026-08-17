@@ -196,6 +196,7 @@ async function creerDossier(guild, plainte) {
 
   return channel;
 }
+
 client.on(Events.InteractionCreate, async interaction => {
 
   if (!interaction.isChatInputCommand()) {
@@ -209,13 +210,6 @@ client.on(Events.InteractionCreate, async interaction => {
     // ==========================
 
     if (interaction.commandName === "plainte") {
-
-      if (estJuge(interaction.member)) {
-        return interaction.reply({
-          content: "❌ Un Juge ne peut pas déposer de plainte.",
-          ephemeral: true
-        });
-      }
 
       const accuse = interaction.options.getUser("accuse");
       const motif = interaction.options.getString("motif");
@@ -281,7 +275,6 @@ client.on(Events.InteractionCreate, async interaction => {
       });
     }
 
-
     // ==========================
     // /PLAINTES
     // ==========================
@@ -318,7 +311,6 @@ client.on(Events.InteractionCreate, async interaction => {
         ephemeral: true
       });
     }
-
 
     // ==========================
     // /AVOCAT
@@ -418,8 +410,9 @@ client.on(Events.InteractionCreate, async interaction => {
           `✅ ${avocat} est maintenant ton avocat pour l'affaire **#${id}**.`,
         ephemeral: true
       });
-                    }
-        // ==========================
+    }
+
+    // ==========================
     // /AUDIENCE
     // ==========================
 
@@ -479,7 +472,6 @@ client.on(Events.InteractionCreate, async interaction => {
         content: message
       });
     }
-
 
     // ==========================
     // /CONDAMNER
@@ -546,7 +538,6 @@ client.on(Events.InteractionCreate, async interaction => {
       });
     }
 
-
     // ==========================
     // /ACQUITTER
     // ==========================
@@ -612,7 +603,6 @@ client.on(Events.InteractionCreate, async interaction => {
       });
     }
 
-
     // ==========================
     // /VERDICT
     // ==========================
@@ -656,8 +646,9 @@ client.on(Events.InteractionCreate, async interaction => {
         content: texte,
         ephemeral: true
       });
-        }
-        // ==========================
+    }
+
+    // ==========================
     // /FERMER
     // ==========================
 
@@ -745,7 +736,6 @@ client.on(Events.InteractionCreate, async interaction => {
       });
     }
 
-
     // ==========================
     // /AIDE
     // ==========================
@@ -789,7 +779,6 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 });
 
-
 // ==========================
 // ERREURS
 // ==========================
@@ -813,7 +802,6 @@ process.on(
     );
   }
 );
-
 
 // ==========================
 // CONNEXION
