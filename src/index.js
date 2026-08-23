@@ -94,6 +94,12 @@ function estAvocat(member) {
   );
 }
 
+function estRepresentantDefense(member) {
+  return member.roles.cache.some(
+    role => role.name === "Représentant de la défense"
+  );
+}
+
 function getRole(guild, name) {
   return guild.roles.cache.find(
     role => role.name === name
@@ -110,6 +116,10 @@ client.once(Events.ClientReady, bot => {
     console.log(`🏛️ Serveur : ${guild.name}`);
     console.log("Juge :", getRole(guild, "Juge") ? "✅" : "❌");
     console.log("Avocat :", getRole(guild, "Avocat") ? "✅" : "❌");
+    console.log(
+      "Représentant de la défense :",
+      getRole(guild, "Représentant de la défense") ? "✅" : "❌"
+    );
     console.log("Accusé :", getRole(guild, "Accusé") ? "✅" : "❌");
     console.log("Cour :", getRole(guild, "Cour") ? "✅" : "❌");
   }
@@ -127,6 +137,11 @@ async function creerDossier(guild, plainte) {
 
   const jugeRole = getRole(guild, "Juge");
   const courRole = getRole(guild, "Cour");
+  const avocatRole = getRole(guild, "Avocat");
+  const representantDefenseRole = getRole(
+    guild,
+    "Représentant de la défense"
+  );
 
   const permissions = [
     {
@@ -173,6 +188,30 @@ async function creerDossier(guild, plainte) {
     });
   }
 
+  // Tous les avocats peuvent participer à toutes les affaires
+  if (avocatRole) {
+    permissions.push({
+      id: avocatRole.id,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory
+      ]
+    });
+  }
+
+  // Tous les représentants de la défense peuvent participer à toutes les affaires
+  if (representantDefenseRole) {
+    permissions.push({
+      id: representantDefenseRole.id,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory
+      ]
+    });
+  }
+
   const channel = await guild.channels.create({
     name: `📁・affaire-${plainte.id}`,
     type: ChannelType.GuildText,
@@ -189,8 +228,10 @@ async function creerDossier(guild, plainte) {
     `📌 Motif : ${plainte.motif}\n` +
     `📄 Description : ${plainte.description}\n\n` +
     `⏳ Statut : **${plainte.statut}**\n\n` +
-    `🧑‍💼 Avocat : Aucun\n\n` +
-    `L'accusé peut choisir son avocat avec :\n` +
+    `🧑‍💼 Avocat désigné : Aucun\n\n` +
+    `🛡️ Tous les membres ayant le rôle **Avocat** ou ` +
+    `**Représentant de la défense** peuvent participer à cette affaire.\n\n` +
+    `L'accusé peut choisir un avocat avec :\n` +
     `\`/avocat id:${plainte.id} avocat:@Nom\``
   );
 
@@ -198,7 +239,6 @@ async function creerDossier(guild, plainte) {
 }
 
 client.on(Events.InteractionCreate, async interaction => {
-
   if (!interaction.isChatInputCommand()) {
     return;
   }
@@ -210,7 +250,6 @@ client.on(Events.InteractionCreate, async interaction => {
     // ==========================
 
     if (interaction.commandName === "plainte") {
-
       const accuse = interaction.options.getUser("accuse");
       const motif = interaction.options.getString("motif");
       const description = interaction.options.getString("description");
@@ -280,7 +319,6 @@ client.on(Events.InteractionCreate, async interaction => {
     // ==========================
 
     if (interaction.commandName === "plaintes") {
-
       if (!estJuge(interaction.member)) {
         return interaction.reply({
           content: "❌ Commande réservée au rôle **Juge**.",
@@ -317,7 +355,6 @@ client.on(Events.InteractionCreate, async interaction => {
     // ==========================
 
     if (interaction.commandName === "avocat") {
-
       const id = interaction.options.getInteger("id");
       const avocat = interaction.options.getUser("avocat");
 
@@ -390,19 +427,11 @@ client.on(Events.InteractionCreate, async interaction => {
         });
       }
 
-      await channel.permissionOverwrites.edit(
-        avocat.id,
-        {
-          ViewChannel: true,
-          SendMessages: true,
-          ReadMessageHistory: true
-        }
-      );
-
       await channel.send(
         `🧑‍💼 **AVOCAT DÉSIGNÉ**\n\n` +
         `L'accusé <@${plainte.accuse}> a choisi ${avocat} comme avocat.\n\n` +
-        `✅ L'avocat peut maintenant voir et participer à la discussion.`
+        `ℹ️ Les membres ayant le rôle **Avocat** ou ` +
+        `**Représentant de la défense** ont déjà accès à cette affaire.`
       );
 
       return interaction.reply({
@@ -417,7 +446,6 @@ client.on(Events.InteractionCreate, async interaction => {
     // ==========================
 
     if (interaction.commandName === "audience") {
-
       if (!estJuge(interaction.member)) {
         return interaction.reply({
           content: "❌ Commande réservée au rôle **Juge**.",
@@ -478,7 +506,6 @@ client.on(Events.InteractionCreate, async interaction => {
     // ==========================
 
     if (interaction.commandName === "condamner") {
-
       if (!estJuge(interaction.member)) {
         return interaction.reply({
           content: "❌ Commande réservée au rôle **Juge**.",
@@ -543,7 +570,6 @@ client.on(Events.InteractionCreate, async interaction => {
     // ==========================
 
     if (interaction.commandName === "acquitter") {
-
       if (!estJuge(interaction.member)) {
         return interaction.reply({
           content: "❌ Commande réservée au rôle **Juge**.",
@@ -608,7 +634,6 @@ client.on(Events.InteractionCreate, async interaction => {
     // ==========================
 
     if (interaction.commandName === "verdict") {
-
       const id = interaction.options.getInteger("id");
       const plainte = getPlainte(id);
 
@@ -639,7 +664,7 @@ client.on(Events.InteractionCreate, async interaction => {
       }
 
       if (plainte.avocat) {
-        texte += `\n🧑‍💼 Avocat : <@${plainte.avocat}>`;
+        texte += `\n🧑‍💼 Avocat désigné : <@${plainte.avocat}>`;
       }
 
       return interaction.reply({
@@ -653,7 +678,6 @@ client.on(Events.InteractionCreate, async interaction => {
     // ==========================
 
     if (interaction.commandName === "fermer") {
-
       if (!estJuge(interaction.member)) {
         return interaction.reply({
           content: "❌ Commande réservée au rôle **Juge**.",
@@ -682,27 +706,29 @@ client.on(Events.InteractionCreate, async interaction => {
       saveData(plaintes);
 
       if (plainte.channel_id) {
-
         const channel =
           interaction.guild.channels.cache.get(
             plainte.channel_id
           );
 
         if (channel) {
-
           await channel.send(
             `🔒 **AFFAIRE #${id} FERMÉE**\n\n` +
             `Cette affaire est maintenant officiellement fermée.\n\n` +
             `⚖️ Fermée par ${interaction.user}`
           );
 
-          await channel.permissionOverwrites.edit(
-            interaction.guild.roles.everyone.id,
-            {
-              ViewChannel: false
-            }
+          const avocatRole = getRole(
+            interaction.guild,
+            "Avocat"
           );
 
+          const representantDefenseRole = getRole(
+            interaction.guild,
+            "Représentant de la défense"
+          );
+
+          // Le plaignant et l'accusé ne peuvent plus écrire
           await channel.permissionOverwrites.edit(
             plainte.accuse,
             {
@@ -717,8 +743,28 @@ client.on(Events.InteractionCreate, async interaction => {
             }
           );
 
-          if (plainte.avocat) {
+          // Tous les avocats ne peuvent plus écrire
+          if (avocatRole) {
+            await channel.permissionOverwrites.edit(
+              avocatRole.id,
+              {
+                SendMessages: false
+              }
+            );
+          }
 
+          // Tous les représentants de la défense ne peuvent plus écrire
+          if (representantDefenseRole) {
+            await channel.permissionOverwrites.edit(
+              representantDefenseRole.id,
+              {
+                SendMessages: false
+              }
+            );
+          }
+
+          // L'avocat spécifiquement désigné ne peut plus écrire non plus
+          if (plainte.avocat) {
             await channel.permissionOverwrites.edit(
               plainte.avocat,
               {
@@ -741,11 +787,10 @@ client.on(Events.InteractionCreate, async interaction => {
     // ==========================
 
     if (interaction.commandName === "aide") {
-
       return interaction.reply({
         content:
           `⚖️ **TRIBUNAL — COMMANDES**\n\n` +
-          `📝 \`/plainte\` — Déposer une plainte\n` +
+          `📝 \`/plainte\` — Déposer une plainte`
           `📁 \`/plaintes\` — Voir les plaintes (Juge)\n` +
           `⚖️ \`/audience\` — Ouvrir une audience (Juge)\n` +
           `🔨 \`/condamner\` — Condamner (Juge)\n` +
@@ -759,7 +804,6 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 
   } catch (error) {
-
     console.error(
       "❌ Erreur pendant l'exécution d'une commande :",
       error
@@ -769,7 +813,6 @@ client.on(Events.InteractionCreate, async interaction => {
       !interaction.replied &&
       !interaction.deferred
     ) {
-
       await interaction.reply({
         content:
           "❌ Une erreur est survenue pendant l'exécution de la commande.",
