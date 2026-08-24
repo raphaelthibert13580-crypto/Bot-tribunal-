@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 const {
   Client,
   GatewayIntentBits,
@@ -21,8 +23,7 @@ const path = require("path");
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
-const UNBELIEVABOAT_TOKEN =
-  process.env.UNBELIEVABOAT_TOKEN;
+const UNBELIEVABOAT_TOKEN = process.env.UNBELIEVABOAT_TOKEN;
 
 if (!TOKEN) {
   console.error("❌ DISCORD_TOKEN manquant.");
@@ -35,9 +36,7 @@ if (!GUILD_ID) {
 }
 
 if (!UNBELIEVABOAT_TOKEN) {
-  console.error(
-    "❌ UNBELIEVABOAT_TOKEN manquant."
-  );
+  console.error("❌ UNBELIEVABOAT_TOKEN manquant.");
   process.exit(1);
 }
 
@@ -45,460 +44,227 @@ if (!UNBELIEVABOAT_TOKEN) {
 // FICHIERS
 // ======================================================
 
-const DATA_DIR =
-  process.env.DATA_DIR || ".";
+const DATA_DIR = process.env.DATA_DIR || ".";
 
-const DATA_FILE =
-  path.join(
-    DATA_DIR,
-    "plaintes.json"
-  );
+const DATA_FILE = path.join(DATA_DIR, "plaintes.json");
+const ROLES_FILE = path.join(DATA_DIR, "roles.json");
 
-const ROLES_FILE =
-  path.join(
-    DATA_DIR,
-    "roles.json"
-  );
-
-if (
-  !fs.existsSync(DATA_DIR) &&
-  DATA_DIR !== "."
-) {
-  fs.mkdirSync(
-    DATA_DIR,
-    {
-      recursive: true
-    }
-  );
+if (!fs.existsSync(DATA_DIR) && DATA_DIR !== ".") {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
 // ======================================================
-// OUTILS JSON
+// DONNÉES DES PLAINTES
 // ======================================================
 
-function loadJSON(
-  file,
-  defaultValue
-) {
+function loadData() {
   try {
-
-    if (!fs.existsSync(file)) {
-
-      fs.writeFileSync(
-        file,
-        JSON.stringify(
-          defaultValue,
-          null,
-          2
-        ),
-        "utf8"
-      );
-
-      return defaultValue;
+    if (!fs.existsSync(DATA_FILE)) {
+      fs.writeFileSync(DATA_FILE, "[]", "utf8");
+      return [];
     }
 
-    const content =
-      fs.readFileSync(
-        file,
-        "utf8"
-      );
+    const content = fs.readFileSync(DATA_FILE, "utf8");
 
     if (!content.trim()) {
-      return defaultValue;
+      return [];
     }
 
     return JSON.parse(content);
 
   } catch (error) {
-
-    console.error(
-      `❌ Erreur lecture ${file} :`,
-      error
-    );
-
-    return defaultValue;
+    console.error("❌ Erreur chargement plaintes :", error);
+    return [];
   }
 }
 
-function saveJSON(
-  file,
-  data
-) {
+function saveData(data) {
   try {
-
     fs.writeFileSync(
-      file,
-      JSON.stringify(
-        data,
-        null,
-        2
-      ),
+      DATA_FILE,
+      JSON.stringify(data, null, 2),
       "utf8"
     );
-
   } catch (error) {
-
-    console.error(
-      `❌ Erreur sauvegarde ${file} :`,
-      error
-    );
+    console.error("❌ Erreur sauvegarde plaintes :", error);
   }
 }
 
+let plaintes = loadData();
+
 // ======================================================
-// DONNÉES
+// DONNÉES DES RÔLES ACHETÉS
 // ======================================================
 
-let plaintes =
-  loadJSON(
-    DATA_FILE,
-    []
-  );
+function loadRolesData() {
+  try {
+    if (!fs.existsSync(ROLES_FILE)) {
+      fs.writeFileSync(ROLES_FILE, "{}", "utf8");
+      return {};
+    }
 
-let rolesData =
-  loadJSON(
-    ROLES_FILE,
-    {}
+    const content = fs.readFileSync(ROLES_FILE, "utf8");
+
+    if (!content.trim()) {
+      return {};
+    }
+
+    return JSON.parse(content);
+
+  } catch (error) {
+    console.error("❌ Erreur chargement rôles :", error);
+    return {};
+  }
+}
+
+function saveRolesData(data) {
+  try {
+    fs.writeFileSync(
+      ROLES_FILE,
+      JSON.stringify(data, null, 2),
+      "utf8"
+    );
+  } catch (error) {
+    console.error("❌ Erreur sauvegarde rôles :", error);
+  }
+}
+
+let rolesData = loadRolesData();
+
+function getUserRolesData(userId) {
+  if (!rolesData[userId]) {
+    rolesData[userId] = {
+      achetes: [],
+      dernierEquipement: 0
+    };
+
+    saveRolesData(rolesData);
+  }
+
+  if (!Array.isArray(rolesData[userId].achetes)) {
+    rolesData[userId].achetes = [];
+  }
+
+  if (
+    typeof rolesData[userId].dernierEquipement !== "number"
+  ) {
+    rolesData[userId].dernierEquipement = 0;
+  }
+
+  return rolesData[userId];
+}
+
+function getUserOwnedRoles(userId) {
+  return getUserRolesData(userId).achetes;
+}
+
+function hasPurchasedRole(userId, roleName) {
+  return getUserOwnedRoles(userId).includes(roleName);
+}
+
+function addPurchasedRole(userId, roleName) {
+  const userData = getUserRolesData(userId);
+
+  if (!userData.achetes.includes(roleName)) {
+    userData.achetes.push(roleName);
+    saveRolesData(rolesData);
+  }
+}
+
+function canEquipRole(userId) {
+  const userData = getUserRolesData(userId);
+  const now = Date.now();
+  const delay = 24 * 60 * 60 * 1000;
+
+  return now - userData.dernierEquipement >= delay;
+}
+
+function getRemainingEquipTime(userId) {
+  const userData = getUserRolesData(userId);
+  const delay = 24 * 60 * 60 * 1000;
+
+  return Math.max(
+    0,
+    delay - (Date.now() - userData.dernierEquipement)
   );
+}
+
+function setRoleEquippedNow(userId) {
+  const userData = getUserRolesData(userId);
+
+  userData.dernierEquipement = Date.now();
+
+  saveRolesData(rolesData);
+}
 
 // ======================================================
 // CLIENT
 // ======================================================
 
-const client =
-  new Client({
-
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMembers
-    ]
-
-  });
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers
+  ]
+});
 
 // ======================================================
 // RÔLES
 // ======================================================
 
-const ROLE_COUR =
-  "Cour";
-
-const ROLE_JUGE =
-  "Juge";
-
-const ROLE_AVOCAT =
-  "Avocat";
-
-const ROLE_REPRESENTANT =
-  "Représentant de la défense";
-
-const ROLE_QOD =
-  "Quitte ou double";
+const ROLE_COUR = "Cour";
+const ROLE_JUGE = "Juge";
+const ROLE_AVOCAT = "Avocat";
+const ROLE_REPRESENTANT = "Représentant de la défense";
+const ROLE_QOD = "Quitte ou double";
 
 // ======================================================
 // PRIX
 // ======================================================
 
 const PRIX_ROLES = {
-
-  [ROLE_AVOCAT]:
-    500000,
-
-  [ROLE_REPRESENTANT]:
-    750000,
-
-  [ROLE_QOD]:
-    500000,
-
-  [ROLE_JUGE]:
-    5000000
-
+  [ROLE_AVOCAT]: 500000,
+  [ROLE_REPRESENTANT]: 750000,
+  [ROLE_QOD]: 500000,
+  [ROLE_JUGE]: 5000000
 };
 
 // ======================================================
 // RÉCOMPENSES
 // ======================================================
 
-const RECOMPENSE_PLAIGNANT =
-  10000;
+const RECOMPENSE_PLAIGNANT = 10000;
+const RECOMPENSE_REPRESENTANT = 20000;
+const RECOMPENSE_ACCUSE_ACQUITTE = 10000;
+const RECOMPENSE_AVOCAT_ACQUITTE = 10000;
 
-const RECOMPENSE_REPRESENTANT =
-  20000;
-
-const RECOMPENSE_ACCUSE_ACQUITTE =
-  10000;
-
-const RECOMPENSE_AVOCAT_ACQUITTE =
-  10000;
-
-const QOD_GAIN =
-  20000;
-
-const QOD_PERTE =
-  -10000;
-
-// ======================================================
-// FONCTIONS DE BASE
-// ======================================================
-
-function nextId() {
-
-  if (
-    plaintes.length === 0
-  ) {
-    return 1;
-  }
-
-  return (
-    Math.max(
-      ...plaintes.map(
-        p => Number(p.id) || 0
-      )
-    ) + 1
-  );
-}
-
-function getPlainte(id) {
-
-  return plaintes.find(
-    p =>
-      Number(p.id) ===
-      Number(id)
-  );
-}
-
-function getRole(
-  guild,
-  name
-) {
-
-  return guild.roles.cache.find(
-    role =>
-      role.name === name
-  );
-}
-
-function getChannel(
-  guild,
-  id
-) {
-
-  return guild.channels.cache.get(
-    id
-  );
-}
-
-function estJuge(member) {
-
-  return member.roles.cache.some(
-    role =>
-      role.name === ROLE_JUGE
-  );
-}
-
-function estAvocat(member) {
-
-  return member.roles.cache.some(
-    role =>
-      role.name === ROLE_AVOCAT
-  );
-}
-
-function estRepresentant(member) {
-
-  return member.roles.cache.some(
-    role =>
-      role.name ===
-      ROLE_REPRESENTANT
-  );
-}
-
-function estQOD(member) {
-
-  return member.roles.cache.some(
-    role =>
-      role.name === ROLE_QOD
-  );
-}
-
-// ======================================================
-// DONNÉES DES RÔLES
-// ======================================================
-
-function getRoleData(userId) {
-
-  if (!rolesData[userId]) {
-
-    rolesData[userId] = {
-
-      achetes: [],
-
-      roleEquipe: null,
-
-      dernierEquipement: 0
-
-    };
-
-    saveJSON(
-      ROLES_FILE,
-      rolesData
-    );
-  }
-
-  if (
-    !Array.isArray(
-      rolesData[userId].achetes
-    )
-  ) {
-    rolesData[userId].achetes = [];
-  }
-
-  if (
-    typeof rolesData[userId]
-      .dernierEquipement !==
-    "number"
-  ) {
-    rolesData[userId]
-      .dernierEquipement = 0;
-  }
-
-  if (
-    !("roleEquipe" in rolesData[userId])
-  ) {
-    rolesData[userId]
-      .roleEquipe = null;
-  }
-
-  return rolesData[userId];
-}
-
-function getUserOwnedRoles(
-  userId
-) {
-
-  return getRoleData(
-    userId
-  ).achetes;
-}
-
-function hasPurchasedRole(
-  userId,
-  roleName
-) {
-
-  return getUserOwnedRoles(
-    userId
-  ).includes(
-    roleName
-  );
-}
-
-function addPurchasedRole(
-  userId,
-  roleName
-) {
-
-  const data =
-    getRoleData(
-      userId
-    );
-
-  if (
-    !data.achetes.includes(
-      roleName
-    )
-  ) {
-
-    data.achetes.push(
-      roleName
-    );
-
-    saveJSON(
-      ROLES_FILE,
-      rolesData
-    );
-  }
-}
-
-function peutEquiper(
-  userId
-) {
-
-  const data =
-    getRoleData(
-      userId
-    );
-
-  const maintenant =
-    Date.now();
-
-  const vingtQuatreHeures =
-    24 * 60 * 60 * 1000;
-
-  return (
-    maintenant -
-    data.dernierEquipement >=
-    vingtQuatreHeures
-  );
-}
-
-function tempsRestantEquipement(
-  userId
-) {
-
-  const data =
-    getRoleData(
-      userId
-    );
-
-  const vingtQuatreHeures =
-    24 * 60 * 60 * 1000;
-
-  return Math.max(
-    0,
-    vingtQuatreHeures -
-      (
-        Date.now() -
-        data.dernierEquipement
-      )
-  );
-      }
+const QOD_GAIN = 20000;
+const QOD_PERTE = -10000;
 // ======================================================
 // UNBELIEVABOAT
 // ======================================================
 
-async function modifierArgent(
-  userId,
-  montant,
-  raison
-) {
-
+async function modifierArgent(userId, montant, raison) {
   try {
+    const response = await fetch(
+      `https://unbelievaboat.com/api/v1/guilds/${GUILD_ID}/users/${userId}`,
+      {
+        method: "PATCH",
 
-    const response =
-      await fetch(
-        `https://unbelievaboat.com/api/v1/guilds/${GUILD_ID}/users/${userId}`,
-        {
-          method: "PATCH",
+        headers: {
+          Authorization: UNBELIEVABOAT_TOKEN,
+          "Content-Type": "application/json"
+        },
 
-          headers: {
-            "Authorization":
-              UNBELIEVABOAT_TOKEN,
-
-            "Content-Type":
-              "application/json"
-          },
-
-          body: JSON.stringify({
-            cash: montant,
-            reason: raison
-          })
-        }
-      );
+        body: JSON.stringify({
+          cash: montant,
+          reason: raison
+        })
+      }
+    );
 
     if (!response.ok) {
-
-      const texte =
-        await response.text();
+      const texte = await response.text();
 
       console.error(
         `❌ Erreur UnbelievaBoat (${response.status}) :`,
@@ -509,9 +275,7 @@ async function modifierArgent(
     }
 
     return true;
-
   } catch (error) {
-
     console.error(
       "❌ Erreur connexion UnbelievaBoat :",
       error
@@ -521,36 +285,23 @@ async function modifierArgent(
   }
 }
 
-async function getCash(
-  userId
-) {
-
+async function getCash(userId) {
   try {
-
-    const response =
-      await fetch(
-        `https://unbelievaboat.com/api/v1/guilds/${GUILD_ID}/users/${userId}`,
-        {
-          headers: {
-            "Authorization":
-              UNBELIEVABOAT_TOKEN
-          }
+    const response = await fetch(
+      `https://unbelievaboat.com/api/v1/guilds/${GUILD_ID}/users/${userId}`,
+      {
+        headers: {
+          Authorization: UNBELIEVABOAT_TOKEN
         }
-      );
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const data =
-      await response.json();
-
-    return Number(
-      data.cash || 0
+      }
     );
 
-  } catch (error) {
+    if (!response.ok) return null;
 
+    const data = await response.json();
+
+    return Number(data.cash || 0);
+  } catch (error) {
     console.error(
       "❌ Erreur récupération argent :",
       error
@@ -564,58 +315,42 @@ async function getCash(
 // RÉCOMPENSES
 // ======================================================
 
-async function donnerRecompenses(
-  plainte,
-  condamne
-) {
-
-  if (
-    plainte.recompenses_distribuees
-  ) {
-
-    return [];
-  }
-
-  const guild =
-    client.guilds.cache.get(
-      GUILD_ID
+async function donnerRecompenses(plainte, condamne) {
+  if (plainte.recompenses_distribuees) {
+    console.log(
+      `⚠️ Récompenses déjà distribuées pour #${plainte.id}`
     );
 
-  if (!guild) {
     return [];
   }
+
+  const guild = client.guilds.cache.get(GUILD_ID);
+
+  if (!guild) return [];
 
   const recompenses = [];
 
   const plaignant =
     await guild.members
-      .fetch(
-        plainte.plaignant
-      )
+      .fetch(plainte.plaignant)
       .catch(() => null);
 
   const accuse =
     await guild.members
-      .fetch(
-        plainte.accuse
-      )
+      .fetch(plainte.accuse)
       .catch(() => null);
 
   const avocat =
     plainte.avocat
       ? await guild.members
-          .fetch(
-            plainte.avocat
-          )
+          .fetch(plainte.avocat)
           .catch(() => null)
       : null;
 
   const representant =
     plainte.representant
       ? await guild.members
-          .fetch(
-            plainte.representant
-          )
+          .fetch(plainte.representant)
           .catch(() => null)
       : null;
 
@@ -626,76 +361,48 @@ async function donnerRecompenses(
   if (condamne) {
 
     if (plaignant) {
-
-      if (
+      const montant =
         estQOD(plaignant)
-      ) {
+          ? QOD_GAIN
+          : RECOMPENSE_PLAIGNANT;
 
-        const ok =
-          await modifierArgent(
-            plainte.plaignant,
-            QOD_GAIN,
-            `Affaire #${plainte.id} - Quitte ou double gagné`
-          );
+      const ok = await modifierArgent(
+        plainte.plaignant,
+        montant,
+        `Affaire #${plainte.id} - Procès gagné`
+      );
 
-        if (ok) {
-
-          recompenses.push(
-            `🎲 <@${plainte.plaignant}> — **+20 000** (Quitte ou double)`
-          );
-        }
-
-      } else {
-
-        const ok =
-          await modifierArgent(
-            plainte.plaignant,
-            RECOMPENSE_PLAIGNANT,
-            `Affaire #${plainte.id} - Procès gagné`
-          );
-
-        if (ok) {
-
-          recompenses.push(
-            `👤 <@${plainte.plaignant}> — **+10 000**`
-          );
-        }
+      if (ok) {
+        recompenses.push(
+          `👤 <@${plainte.plaignant}> — **+${montant.toLocaleString("fr-FR")}**`
+        );
       }
     }
 
     if (representant) {
-
-      const ok =
-        await modifierArgent(
-          plainte.representant,
-          RECOMPENSE_REPRESENTANT,
-          `Affaire #${plainte.id} - Représentant`
-        );
+      const ok = await modifierArgent(
+        plainte.representant,
+        RECOMPENSE_REPRESENTANT,
+        `Affaire #${plainte.id} - Représentant`
+      );
 
       if (ok) {
-
         recompenses.push(
           `🛡️ <@${plainte.representant}> — **+20 000**`
         );
       }
     }
 
-    if (
-      accuse &&
-      estQOD(accuse)
-    ) {
-
-      const ok =
-        await modifierArgent(
-          plainte.accuse,
-          QOD_PERTE,
-          `Affaire #${plainte.id} - Quitte ou double perdu`
-        );
+    if (accuse && estQOD(accuse)) {
+      const ok = await modifierArgent(
+        plainte.accuse,
+        QOD_PERTE,
+        `Affaire #${plainte.id} - Quitte ou double perdu`
+      );
 
       if (ok) {
-
         recompenses.push(
-          `🎲 <@${plainte.accuse}> — **-10 000** (Quitte ou double)`
+          `🎲 <@${plainte.accuse}> — **-10 000**`
         );
       }
     }
@@ -707,88 +414,56 @@ async function donnerRecompenses(
     // ==================================================
 
     if (accuse) {
-
-      if (
+      const montant =
         estQOD(accuse)
-      ) {
+          ? QOD_GAIN
+          : RECOMPENSE_ACCUSE_ACQUITTE;
 
-        const ok =
-          await modifierArgent(
-            plainte.accuse,
-            QOD_GAIN,
-            `Affaire #${plainte.id} - Quitte ou double gagné`
-          );
+      const ok = await modifierArgent(
+        plainte.accuse,
+        montant,
+        `Affaire #${plainte.id} - Accusé acquitté`
+      );
 
-        if (ok) {
-
-          recompenses.push(
-            `🎲 <@${plainte.accuse}> — **+20 000** (Quitte ou double)`
-          );
-        }
-
-      } else {
-
-        const ok =
-          await modifierArgent(
-            plainte.accuse,
-            RECOMPENSE_ACCUSE_ACQUITTE,
-            `Affaire #${plainte.id} - Accusé acquitté`
-          );
-
-        if (ok) {
-
-          recompenses.push(
-            `⚠️ <@${plainte.accuse}> — **+10 000**`
-          );
-        }
+      if (ok) {
+        recompenses.push(
+          `⚠️ <@${plainte.accuse}> — **+${montant.toLocaleString("fr-FR")}**`
+        );
       }
     }
 
     if (avocat) {
-
-      const ok =
-        await modifierArgent(
-          plainte.avocat,
-          RECOMPENSE_AVOCAT_ACQUITTE,
-          `Affaire #${plainte.id} - Avocat`
-        );
+      const ok = await modifierArgent(
+        plainte.avocat,
+        RECOMPENSE_AVOCAT_ACQUITTE,
+        `Affaire #${plainte.id} - Avocat`
+      );
 
       if (ok) {
-
         recompenses.push(
           `🧑‍💼 <@${plainte.avocat}> — **+10 000**`
         );
       }
     }
 
-    if (
-      plaignant &&
-      estQOD(plaignant)
-    ) {
-
-      const ok =
-        await modifierArgent(
-          plainte.plaignant,
-          QOD_PERTE,
-          `Affaire #${plainte.id} - Quitte ou double perdu`
-        );
+    if (plaignant && estQOD(plaignant)) {
+      const ok = await modifierArgent(
+        plainte.plaignant,
+        QOD_PERTE,
+        `Affaire #${plainte.id} - Quitte ou double perdu`
+      );
 
       if (ok) {
-
         recompenses.push(
-          `🎲 <@${plainte.plaignant}> — **-10 000** (Quitte ou double)`
+          `🎲 <@${plainte.plaignant}> — **-10 000**`
         );
       }
     }
   }
 
-  plainte.recompenses_distribuees =
-    true;
+  plainte.recompenses_distribuees = true;
 
-  saveJSON(
-    DATA_FILE,
-    plaintes
-  );
+  saveData(plaintes);
 
   return recompenses;
 }
@@ -797,82 +472,40 @@ async function donnerRecompenses(
 // CHOIX AUTOMATIQUE APRÈS 2 MINUTES
 // ======================================================
 
-async function choisirAutomatiquement(
-  guild,
-  plainte
-) {
+async function choisirAutomatiquement(guild, plainte) {
+  if (plainte.statut === "Fermée") return;
 
-  if (
-    plainte.statut ===
-    "Fermée"
-  ) {
-    return;
-  }
-
-  // ==================================================
   // AVOCAT
-  // ==================================================
-
   if (!plainte.avocat) {
-
-    const role =
-      getRole(
-        guild,
-        ROLE_AVOCAT
-      );
+    const role = getRole(guild, ROLE_AVOCAT);
 
     if (role) {
+      const candidats = role.members.filter(
+        member =>
+          member.id !== plainte.accuse &&
+          member.id !== plainte.plaignant
+      );
 
-      const candidats =
-        role.members.filter(
-          member =>
-            member.id !==
-              plainte.accuse &&
-            member.id !==
-              plainte.plaignant
-        );
-
-      if (
-        candidats.size > 0
-      ) {
-
-        const tableau =
-          [...candidats.values()];
+      if (candidats.size > 0) {
+        const tableau = [...candidats.values()];
 
         const choisi =
           tableau[
             Math.floor(
-              Math.random() *
-              tableau.length
+              Math.random() * tableau.length
             )
           ];
 
-        plainte.avocat =
-          choisi.id;
+        plainte.avocat = choisi.id;
 
-        saveJSON(
-          DATA_FILE,
-          plaintes
-        );
+        saveData(plaintes);
 
         const channel =
-          getChannel(
-            guild,
+          guild.channels.cache.get(
             plainte.channel_id
           );
 
         if (channel) {
-
-          await channel.permissionOverwrites
-            .edit(
-              choisi.id,
-              {
-                ViewChannel: true,
-                SendMessages: true,
-                ReadMessageHistory: true
-              }
-            );
-
           await channel.send(
             `🧑‍💼 **AVOCAT CHOISI AUTOMATIQUEMENT**\n\n` +
             `L'accusé n'ayant pas choisi d'avocat dans les **2 minutes**, ` +
@@ -883,70 +516,40 @@ async function choisirAutomatiquement(
     }
   }
 
-  // ==================================================
   // REPRÉSENTANT
-  // ==================================================
-
   if (!plainte.representant) {
-
-    const role =
-      getRole(
-        guild,
-        ROLE_REPRESENTANT
-      );
+    const role = getRole(
+      guild,
+      ROLE_REPRESENTANT
+    );
 
     if (role) {
+      const candidats = role.members.filter(
+        member =>
+          member.id !== plainte.accuse &&
+          member.id !== plainte.plaignant
+      );
 
-      const candidats =
-        role.members.filter(
-          member =>
-            member.id !==
-              plainte.accuse &&
-            member.id !==
-              plainte.plaignant
-        );
-
-      if (
-        candidats.size > 0
-      ) {
-
-        const tableau =
-          [...candidats.values()];
+      if (candidats.size > 0) {
+        const tableau = [...candidats.values()];
 
         const choisi =
           tableau[
             Math.floor(
-              Math.random() *
-              tableau.length
+              Math.random() * tableau.length
             )
           ];
 
-        plainte.representant =
-          choisi.id;
+        plainte.representant = choisi.id;
 
-        saveJSON(
-          DATA_FILE,
-          plaintes
-        );
+        saveData(plaintes);
 
         const channel =
-          getChannel(
-            guild,
+          guild.channels.cache.get(
             plainte.channel_id
           );
 
         if (channel) {
-
-          await channel.permissionOverwrites
-            .edit(
-              choisi.id,
-              {
-                ViewChannel: true,
-                SendMessages: true,
-                ReadMessageHistory: true
-              }
-            );
-
           await channel.send(
             `🛡️ **REPRÉSENTANT CHOISI AUTOMATIQUEMENT**\n\n` +
             `Le plaignant n'ayant pas choisi de représentant dans les **2 minutes**, ` +
@@ -957,63 +560,33 @@ async function choisirAutomatiquement(
     }
   }
 
-  saveJSON(
-    DATA_FILE,
-    plaintes
-  );
+  saveData(plaintes);
 }
 
 // ======================================================
 // CRÉATION DU DOSSIER
 // ======================================================
 
-async function creerDossier(
-  guild,
-  plainte
-) {
-
+async function creerDossier(guild, plainte) {
   const categorie =
     guild.channels.cache.find(
       channel =>
-        channel.type ===
-          ChannelType.GuildCategory &&
+        channel.type === ChannelType.GuildCategory &&
         (
-          channel.name ===
-            "⚖️ TRIBUNAL" ||
-          channel.name ===
-            "📂 AFFAIRES"
+          channel.name === "⚖️ TRIBUNAL" ||
+          channel.name === "📂 AFFAIRES"
         )
     );
 
-  const jugeRole =
-    getRole(
-      guild,
-      ROLE_JUGE
-    );
-
-  const courRole =
-    getRole(
-      guild,
-      ROLE_COUR
-    );
-
-  const avocatRole =
-    getRole(
-      guild,
-      ROLE_AVOCAT
-    );
-
+  const jugeRole = getRole(guild, ROLE_JUGE);
+  const courRole = getRole(guild, ROLE_COUR);
+  const avocatRole = getRole(guild, ROLE_AVOCAT);
   const representantRole =
-    getRole(
-      guild,
-      ROLE_REPRESENTANT
-    );
+    getRole(guild, ROLE_REPRESENTANT);
 
   const permissions = [
-
     {
-      id:
-        guild.roles.everyone.id,
+      id: guild.roles.everyone.id,
 
       deny: [
         PermissionFlagsBits.ViewChannel
@@ -1021,8 +594,7 @@ async function creerDossier(
     },
 
     {
-      id:
-        plainte.plaignant,
+      id: plainte.plaignant,
 
       allow: [
         PermissionFlagsBits.ViewChannel,
@@ -1032,8 +604,7 @@ async function creerDossier(
     },
 
     {
-      id:
-        plainte.accuse,
+      id: plainte.accuse,
 
       allow: [
         PermissionFlagsBits.ViewChannel,
@@ -1041,150 +612,103 @@ async function creerDossier(
         PermissionFlagsBits.ReadMessageHistory
       ]
     }
-
   ];
 
   if (jugeRole) {
-
     permissions.push({
-
-      id:
-        jugeRole.id,
+      id: jugeRole.id,
 
       allow: [
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.SendMessages,
         PermissionFlagsBits.ReadMessageHistory
       ]
-
     });
   }
 
   if (courRole) {
-
     permissions.push({
-
-      id:
-        courRole.id,
+      id: courRole.id,
 
       allow: [
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.SendMessages,
         PermissionFlagsBits.ReadMessageHistory
       ]
-
     });
   }
 
   if (avocatRole) {
-
     permissions.push({
-
-      id:
-        avocatRole.id,
+      id: avocatRole.id,
 
       allow: [
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.SendMessages,
         PermissionFlagsBits.ReadMessageHistory
       ]
-
     });
   }
 
   if (representantRole) {
-
     permissions.push({
-
-      id:
-        representantRole.id,
+      id: representantRole.id,
 
       allow: [
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.SendMessages,
         PermissionFlagsBits.ReadMessageHistory
       ]
-
     });
   }
 
   const channel =
     await guild.channels.create({
+      name: `📁・affaire-${plainte.id}`,
 
-      name:
-        `📁・affaire-${plainte.id}`,
-
-      type:
-        ChannelType.GuildText,
+      type: ChannelType.GuildText,
 
       parent:
         categorie
           ? categorie.id
           : null,
 
-      permissionOverwrites:
-        permissions
-
+      permissionOverwrites: permissions
     });
 
-  plainte.channel_id =
-    channel.id;
-
-  saveJSON(
-    DATA_FILE,
-    plaintes
-  );
+  plainte.channel_id = channel.id;
 
   await channel.send(
-
     `⚖️ **DOSSIER JUDICIAIRE #${plainte.id}**\n\n` +
-
     `👤 **Plaignant :** <@${plainte.plaignant}>\n` +
-
     `⚠️ **Accusé :** <@${plainte.accuse}>\n` +
-
     `📌 **Motif :** ${plainte.motif}\n` +
-
     `📄 **Description :** ${plainte.description}\n\n` +
-
     `⏳ **Statut :** ${plainte.statut}\n\n` +
-
     `🧑‍💼 **Avocat :** Aucun\n` +
-
-    `🛡️ **Représentant de la défense :** Aucun\n\n` +
-
-    `⚠️ L'accusé choisit son avocat avec :\n` +
-
+    `🛡️ **Représentant :** Aucun\n\n` +
+    `⚠️ L'accusé peut choisir son avocat avec :\n` +
     `\`/avocat id:${plainte.id} avocat:@Nom\`\n\n` +
-
-    `⚠️ Le plaignant choisit son représentant avec :\n` +
-
+    `⚠️ Le plaignant peut choisir son représentant avec :\n` +
     `\`/representant id:${plainte.id} representant:@Nom\`\n\n` +
-
     `⏱️ Après **2 minutes**, le bot tentera de choisir automatiquement.`
   );
 
-  setTimeout(
-    async () => {
+  saveData(plaintes);
 
-      try {
-
-        await choisirAutomatiquement(
-          guild,
-          plainte
-        );
-
-      } catch (error) {
-
-        console.error(
-          "❌ Erreur choix automatique :",
-          error
-        );
-      }
-
-    },
-    2 * 60 * 1000
-  );
+  setTimeout(async () => {
+    try {
+      await choisirAutomatiquement(
+        guild,
+        plainte
+      );
+    } catch (error) {
+      console.error(
+        "❌ Erreur choix automatique :",
+        error
+      );
+    }
+  }, 2 * 60 * 1000);
 
   return channel;
     }
@@ -1196,257 +720,167 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("plainte")
-    .setDescription(
-      "Déposer une plainte"
+    .setDescription("Déposer une plainte")
+    .addUserOption(option =>
+      option
+        .setName("accuse")
+        .setDescription("Personne accusée")
+        .setRequired(true)
     )
-    .addUserOption(
-      option =>
-        option
-          .setName("accuse")
-          .setDescription(
-            "Personne accusée"
-          )
-          .setRequired(true)
+    .addStringOption(option =>
+      option
+        .setName("motif")
+        .setDescription("Motif de la plainte")
+        .setRequired(true)
     )
-    .addStringOption(
-      option =>
-        option
-          .setName("motif")
-          .setDescription(
-            "Motif de la plainte"
-          )
-          .setRequired(true)
-    )
-    .addStringOption(
-      option =>
-        option
-          .setName("description")
-          .setDescription(
-            "Description des faits"
-          )
-          .setRequired(true)
+    .addStringOption(option =>
+      option
+        .setName("description")
+        .setDescription("Description des faits")
+        .setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("plaintes")
-    .setDescription(
-      "Voir les affaires ouvertes"
-    ),
-
-  new SlashCommandBuilder()
-    .setName("audience")
-    .setDescription(
-      "Lancer l'audience d'une affaire"
-    )
-    .addIntegerOption(
-      option =>
-        option
-          .setName("id")
-          .setDescription(
-            "Numéro de l'affaire"
-          )
-          .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("condamner")
-    .setDescription(
-      "Condamner un accusé"
-    )
-    .addIntegerOption(
-      option =>
-        option
-          .setName("id")
-          .setDescription(
-            "Numéro de l'affaire"
-          )
-          .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("acquitter")
-    .setDescription(
-      "Acquitter un accusé"
-    )
-    .addIntegerOption(
-      option =>
-        option
-          .setName("id")
-          .setDescription(
-            "Numéro de l'affaire"
-          )
-          .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("verdict")
-    .setDescription(
-      "Voir le verdict d'une affaire"
-    )
-    .addIntegerOption(
-      option =>
-        option
-          .setName("id")
-          .setDescription(
-            "Numéro de l'affaire"
-          )
-          .setRequired(true)
-    ),
-
-  new SlashCommandBuilder()
-    .setName("fermer")
-    .setDescription(
-      "Fermer une affaire"
-    )
-    .addIntegerOption(
-      option =>
-        option
-          .setName("id")
-          .setDescription(
-            "Numéro de l'affaire"
-          )
-          .setRequired(true)
-    ),
+    .setDescription("Voir les plaintes"),
 
   new SlashCommandBuilder()
     .setName("avocat")
-    .setDescription(
-      "Choisir son avocat"
+    .setDescription("Choisir un avocat")
+    .addIntegerOption(option =>
+      option
+        .setName("id")
+        .setDescription("Numéro de l'affaire")
+        .setRequired(true)
     )
-    .addIntegerOption(
-      option =>
-        option
-          .setName("id")
-          .setDescription(
-            "Numéro de l'affaire"
-          )
-          .setRequired(true)
-    )
-    .addUserOption(
-      option =>
-        option
-          .setName("avocat")
-          .setDescription(
-            "Avocat choisi"
-          )
-          .setRequired(true)
+    .addUserOption(option =>
+      option
+        .setName("avocat")
+        .setDescription("Avocat choisi")
+        .setRequired(true)
     ),
 
   new SlashCommandBuilder()
     .setName("representant")
-    .setDescription(
-      "Choisir son représentant"
+    .setDescription("Choisir un représentant")
+    .addIntegerOption(option =>
+      option
+        .setName("id")
+        .setDescription("Numéro de l'affaire")
+        .setRequired(true)
     )
-    .addIntegerOption(
-      option =>
-        option
-          .setName("id")
-          .setDescription(
-            "Numéro de l'affaire"
-          )
-          .setRequired(true)
-    )
-    .addUserOption(
-      option =>
-        option
-          .setName("representant")
-          .setDescription(
-            "Représentant choisi"
-          )
-          .setRequired(true)
+    .addUserOption(option =>
+      option
+        .setName("representant")
+        .setDescription("Représentant choisi")
+        .setRequired(true)
     ),
 
   new SlashCommandBuilder()
-    .setName("acheter-role")
-    .setDescription(
-      "Acheter définitivement un rôle"
-    )
-    .addStringOption(
-      option =>
-        option
-          .setName("role")
-          .setDescription(
-            "Rôle à acheter"
-          )
-          .setRequired(true)
-          .addChoices(
-            {
-              name: "Avocat — 500 000",
-              value: ROLE_AVOCAT
-            },
-            {
-              name: "Représentant — 750 000",
-              value: ROLE_REPRESENTANT
-            },
-            {
-              name: "Quitte ou double — 500 000",
-              value: ROLE_QOD
-            },
-            {
-              name: "Juge — 5 000 000",
-              value: ROLE_JUGE
-            }
-          )
+    .setName("condamner")
+    .setDescription("Condamner un accusé")
+    .addIntegerOption(option =>
+      option
+        .setName("id")
+        .setDescription("Numéro de l'affaire")
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("acquitter")
+    .setDescription("Acquitter un accusé")
+    .addIntegerOption(option =>
+      option
+        .setName("id")
+        .setDescription("Numéro de l'affaire")
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("fermer")
+    .setDescription("Fermer une affaire")
+    .addIntegerOption(option =>
+      option
+        .setName("id")
+        .setDescription("Numéro de l'affaire")
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("acheter")
+    .setDescription("Acheter un rôle")
+    .addStringOption(option =>
+      option
+        .setName("role")
+        .setDescription("Rôle à acheter")
+        .setRequired(true)
+        .addChoices(
+          {
+            name: "Avocat — 500 000",
+            value: ROLE_AVOCAT
+          },
+          {
+            name: "Représentant — 750 000",
+            value: ROLE_REPRESENTANT
+          },
+          {
+            name: "Quitte ou double — 500 000",
+            value: ROLE_QOD
+          },
+          {
+            name: "Juge — 5 000 000",
+            value: ROLE_JUGE
+          }
+        )
     ),
 
   new SlashCommandBuilder()
     .setName("equiper")
-    .setDescription(
-      "Équiper définitivement un rôle acheté"
-    )
-    .addStringOption(
-      option =>
-        option
-          .setName("role")
-          .setDescription(
-            "Rôle à équiper"
-          )
-          .setRequired(true)
-          .addChoices(
-            {
-              name: "Avocat",
-              value: ROLE_AVOCAT
-            },
-            {
-              name: "Représentant de la défense",
-              value: ROLE_REPRESENTANT
-            },
-            {
-              name: "Quitte ou double",
-              value: ROLE_QOD
-            },
-            {
-              name: "Juge",
-              value: ROLE_JUGE
-            }
-          )
+    .setDescription("Équiper un rôle acheté")
+    .addStringOption(option =>
+      option
+        .setName("role")
+        .setDescription("Rôle à équiper")
+        .setRequired(true)
+        .addChoices(
+          {
+            name: "Avocat",
+            value: ROLE_AVOCAT
+          },
+          {
+            name: "Représentant",
+            value: ROLE_REPRESENTANT
+          },
+          {
+            name: "Quitte ou double",
+            value: ROLE_QOD
+          },
+          {
+            name: "Juge",
+            value: ROLE_JUGE
+          }
+        )
     ),
 
   new SlashCommandBuilder()
-    .setName("mes-roles")
-    .setDescription(
-      "Voir les rôles que tu possèdes"
-    )
+    .setName("roles")
+    .setDescription("Voir les rôles achetés"),
 
-].map(
-  command =>
-    command.toJSON()
-);
+  new SlashCommandBuilder()
+    .setName("aide")
+    .setDescription("Afficher l'aide")
+].map(command => command.toJSON());
 
 // ======================================================
 // ENREGISTREMENT DES COMMANDES
 // ======================================================
 
 async function enregistrerCommandes() {
-
   try {
+    const rest = new REST({ version: "10" })
+      .setToken(TOKEN);
 
-    const rest =
-      new REST({
-        version: "10"
-      }).setToken(
-        TOKEN
-      );
+    console.log("⏳ Enregistrement des commandes...");
 
     await rest.put(
       Routes.applicationGuildCommands(
@@ -1458,12 +892,8 @@ async function enregistrerCommandes() {
       }
     );
 
-    console.log(
-      "✅ Commandes slash enregistrées."
-    );
-
+    console.log("✅ Commandes enregistrées.");
   } catch (error) {
-
     console.error(
       "❌ Erreur enregistrement commandes :",
       error
@@ -1471,6 +901,52 @@ async function enregistrerCommandes() {
   }
 }
 
+// ======================================================
+// VÉRIFICATION D'ACCÈS JUGE
+// ======================================================
+
+function verifierJuge(interaction) {
+  return estJuge(interaction.member);
+}
+
+// ======================================================
+// MISE À JOUR DU DOSSIER
+// ======================================================
+
+async function actualiserDossier(plainte) {
+  const guild = client.guilds.cache.get(GUILD_ID);
+
+  if (!guild || !plainte.channel_id) return;
+
+  const channel =
+    guild.channels.cache.get(
+      plainte.channel_id
+    );
+
+  if (!channel) return;
+
+  const statut =
+    plainte.statut || "En cours";
+
+  const avocat =
+    plainte.avocat
+      ? `<@${plainte.avocat}>`
+      : "Aucun";
+
+  const representant =
+    plainte.representant
+      ? `<@${plainte.representant}>`
+      : "Aucun";
+
+  await channel.send(
+    `📋 **MISE À JOUR DE L'AFFAIRE #${plainte.id}**\n\n` +
+    `👤 Plaignant : <@${plainte.plaignant}>\n` +
+    `⚠️ Accusé : <@${plainte.accuse}>\n` +
+    `🧑‍💼 Avocat : ${avocat}\n` +
+    `🛡️ Représentant : ${representant}\n` +
+    `📌 Statut : **${statut}**`
+  );
+    }
 // ======================================================
 // INTERACTIONS
 // ======================================================
@@ -1481,283 +957,40 @@ client.on(
 
     try {
 
-      // ==================================================
-      // BOUTONS
-      // ==================================================
-
-      if (
-        interaction.isButton()
-      ) {
-
-        const parts =
-          interaction.customId.split(
-            "_"
-          );
-
-        const action =
-          parts[0];
-
-        const id =
-          Number(parts[1]);
-
-        const plainte =
-          getPlainte(id);
-
-        if (!plainte) {
-
-          return interaction.reply({
-            content:
-              "❌ Affaire introuvable.",
-            ephemeral: true
-          });
-        }
-
-        if (
-          action ===
-            "condamner" ||
-          action ===
-            "acquitter" ||
-          action ===
-            "fermer"
-        ) {
-
-          if (
-            !estJuge(
-              interaction.member
-            )
-          ) {
-
-            return interaction.reply({
-              content:
-                "❌ Seul le rôle **Juge** peut utiliser ce bouton.",
-              ephemeral: true
-            });
-          }
-        }
-
-        if (
-          action ===
-          "condamner"
-        ) {
-
-          if (
-            plainte.statut !==
-            "En attente"
-          ) {
-
-            return interaction.reply({
-              content:
-                "❌ Un verdict a déjà été rendu.",
-              ephemeral: true
-            });
-          }
-
-          plainte.statut =
-            "Condamné";
-
-          plainte.verdict_par =
-            interaction.user.id;
-
-          plainte.date_verdict =
-            Date.now();
-
-          saveJSON(
-            DATA_FILE,
-            plaintes
-          );
-
-          const recompenses =
-            await donnerRecompenses(
-              plainte,
-              true
-            );
-
-          const channel =
-            getChannel(
-              interaction.guild,
-              plainte.channel_id
-            );
-
-          if (channel) {
-
-            await channel.send(
-              `⚖️ **VERDICT — AFFAIRE #${id}**\n\n` +
-              `🔴 <@${plainte.accuse}> est **CONDAMNÉ**.\n\n` +
-              `💰 **Récompenses :**\n` +
-              (
-                recompenses.length
-                  ? recompenses.join("\n")
-                  : "Aucune."
-              )
-            );
-          }
-
-          return interaction.reply({
-            content:
-              `🔴 Affaire **#${id}** condamnée.`,
-            ephemeral: true
-          });
-        }
-
-        if (
-          action ===
-          "acquitter"
-        ) {
-
-          if (
-            plainte.statut !==
-            "En attente"
-          ) {
-
-            return interaction.reply({
-              content:
-                "❌ Un verdict a déjà été rendu.",
-              ephemeral: true
-            });
-          }
-
-          plainte.statut =
-            "Acquitté";
-
-          plainte.verdict_par =
-            interaction.user.id;
-
-          plainte.date_verdict =
-            Date.now();
-
-          saveJSON(
-            DATA_FILE,
-            plaintes
-          );
-
-          const recompenses =
-            await donnerRecompenses(
-              plainte,
-              false
-            );
-
-          const channel =
-            getChannel(
-              interaction.guild,
-              plainte.channel_id
-            );
-
-          if (channel) {
-
-            await channel.send(
-              `⚖️ **VERDICT — AFFAIRE #${id}**\n\n` +
-              `🟢 <@${plainte.accuse}> est **ACQUITTÉ**.\n\n` +
-              `💰 **Récompenses :**\n` +
-              (
-                recompenses.length
-                  ? recompenses.join("\n")
-                  : "Aucune."
-              )
-            );
-          }
-
-          return interaction.reply({
-            content:
-              `🟢 Affaire **#${id}** acquittée.`,
-            ephemeral: true
-          });
-        }
-
-        if (
-          action ===
-          "fermer"
-        ) {
-
-          plainte.statut =
-            "Fermée";
-
-          saveJSON(
-            DATA_FILE,
-            plaintes
-          );
-
-          const channel =
-            getChannel(
-              interaction.guild,
-              plainte.channel_id
-            );
-
-          await interaction.reply({
-            content:
-              `🔒 Affaire **#${id}** fermée.`,
-            ephemeral: true
-          });
-
-          if (channel) {
-
-            setTimeout(
-              async () => {
-
-                try {
-                  await channel.delete();
-                } catch (error) {
-                  console.error(
-                    "❌ Erreur suppression salon :",
-                    error
-                  );
-                }
-
-              },
-              5000
-            );
-          }
-
-          return;
-        }
-
+      if (!interaction.isChatInputCommand()) {
         return;
-    }
-            // ==================================================
-      // COMMANDES SLASH
-      // ==================================================
+      }
 
-      if (
-        !interaction.isChatInputCommand()
-      ) {
-        return;
+      const guild = interaction.guild;
+
+      if (!guild) {
+        return interaction.reply({
+          content: "❌ Cette commande doit être utilisée sur le serveur.",
+          ephemeral: true
+        });
       }
 
       // ==================================================
       // /PLAINTE
       // ==================================================
 
-      if (
-        interaction.commandName ===
-        "plainte"
-      ) {
+      if (interaction.commandName === "plainte") {
 
-          return interaction.reply({
-            content:
-              "❌ Un juge ne peut pas porter plainte.",
-            ephemeral: true
-          });
-        }
+        // IMPORTANT :
+        // AUCUNE vérification de juge ici.
+        // Un juge peut donc porter plainte.
+        // Un juge peut également être accusé.
 
         const accuse =
-          interaction.options.getUser(
-            "accuse"
-          );
+          interaction.options.getUser("accuse");
 
         const motif =
-          interaction.options.getString(
-            "motif"
-          );
+          interaction.options.getString("motif");
 
         const description =
-          interaction.options.getString(
-            "description"
-          );
+          interaction.options.getString("description");
 
-        if (
-          accuse.id ===
-          interaction.user.id
-        ) {
-
+        if (accuse.id === interaction.user.id) {
           return interaction.reply({
             content:
               "❌ Tu ne peux pas porter plainte contre toi-même.",
@@ -1765,88 +998,59 @@ client.on(
           });
         }
 
-        const membreAccuse =
-          await interaction.guild.members
-            .fetch(
-              accuse.id
-            )
-            .catch(
-              () => null
-            );
+        const accuseMember =
+          await guild.members
+            .fetch(accuse.id)
+            .catch(() => null);
 
-        if (!membreAccuse) {
-
+        if (!accuseMember) {
           return interaction.reply({
             content:
-              "❌ L'accusé doit être présent sur le serveur.",
+              "❌ Impossible de trouver l'accusé.",
             ephemeral: true
           });
         }
 
-        const id =
-          nextId();
+        const id = nextId();
 
         const plainte = {
-
           id,
-
-          plaignant:
-            interaction.user.id,
-
-          accuse:
-            accuse.id,
-
+          plaignant: interaction.user.id,
+          accuse: accuse.id,
           motif,
-
           description,
-
-          avocat:
-            null,
-
-          representant:
-            null,
-
-          channel_id:
-            null,
-
-          statut:
-            "En attente",
-
-          recompenses_distribuees:
-            false,
-
-          date_creation:
-            Date.now(),
-
-          verdict_par:
-            null,
-
-          date_verdict:
-            null
-
+          avocat: null,
+          representant: null,
+          channel_id: null,
+          statut: "En cours",
+          date: Date.now(),
+          recompenses_distribuees: false
         };
 
-        plaintes.push(
-          plainte
-        );
+        plaintes.push(plainte);
 
-        saveJSON(
-          DATA_FILE,
-          plaintes
-        );
+        saveData(plaintes);
 
         await interaction.reply({
           content:
-            `⚖️ **Plainte #${id} créée !**`,
+            `⚖️ **Plainte #${id} créée !**\n` +
+            `Le dossier judiciaire est en cours de création.`,
           ephemeral: true
         });
 
         try {
 
-          await creerDossier(
-            interaction.guild,
-            plainte
-          );
+          const channel =
+            await creerDossier(
+              guild,
+              plainte
+            );
+
+          await interaction.editReply({
+            content:
+              `⚖️ **Plainte #${id} créée !**\n` +
+              `📁 Dossier : ${channel}`
+          });
 
         } catch (error) {
 
@@ -1855,18 +1059,10 @@ client.on(
             error
           );
 
-          plainte.statut =
-            "Erreur";
-
-          saveJSON(
-            DATA_FILE,
-            plaintes
-          );
-
-          await interaction.followUp({
+          await interaction.editReply({
             content:
-              "❌ Impossible de créer le dossier. Vérifie les permissions du bot.",
-            ephemeral: true
+              `⚠️ La plainte #${id} a été enregistrée, mais le dossier n'a pas pu être créé.\n` +
+              `Vérifie les permissions du bot.`
           });
         }
 
@@ -1874,82 +1070,99 @@ client.on(
       }
 
       // ==================================================
+      // /PLAINTES
+      // ==================================================
+
+      if (interaction.commandName === "plaintes") {
+
+        if (!verifierJuge(interaction)) {
+          return interaction.reply({
+            content:
+              "❌ Seul un juge peut utiliser cette commande.",
+            ephemeral: true
+          });
+        }
+
+        if (plaintes.length === 0) {
+          return interaction.reply({
+            content: "📂 Aucune plainte enregistrée.",
+            ephemeral: true
+          });
+        }
+
+        const liste =
+          plaintes
+            .slice(-20)
+            .reverse()
+            .map(p =>
+              `**#${p.id}** — <@${p.plaignant}> contre <@${p.accuse}> — **${p.statut}**`
+            )
+            .join("\n");
+
+        return interaction.reply({
+          content:
+            `⚖️ **AFFAIRES RÉCENTES**\n\n${liste}`,
+          ephemeral: true
+        });
+      }
+
+      // ==================================================
       // /AVOCAT
       // ==================================================
 
-      if (
-        interaction.commandName ===
-        "avocat"
-      ) {
+      if (interaction.commandName === "avocat") {
 
         const id =
-          interaction.options.getInteger(
-            "id"
-          );
+          interaction.options.getInteger("id");
 
         const avocat =
-          interaction.options.getUser(
-            "avocat"
-          );
+          interaction.options.getUser("avocat");
 
         const plainte =
           getPlainte(id);
 
         if (!plainte) {
-
           return interaction.reply({
             content:
-              "❌ Affaire introuvable.",
+              "❌ Cette affaire n'existe pas.",
             ephemeral: true
           });
         }
 
-        if (
-          plainte.statut !==
-          "En attente"
-        ) {
-
+        if (plainte.statut !== "En cours") {
           return interaction.reply({
             content:
-              "❌ Cette affaire n'est plus en attente.",
+              "❌ Cette affaire est déjà terminée.",
             ephemeral: true
           });
         }
 
         if (
           interaction.user.id !==
-          plainte.accuse
+          plainte.accuse &&
+          !verifierJuge(interaction)
         ) {
-
           return interaction.reply({
             content:
-              "❌ Seul l'accusé peut choisir son avocat.",
+              "❌ Seul l'accusé ou un juge peut choisir l'avocat.",
             ephemeral: true
           });
         }
 
-        const membre =
-          await interaction.guild.members
-            .fetch(
-              avocat.id
-            )
-            .catch(
-              () => null
-            );
+        const avocatMember =
+          await guild.members
+            .fetch(avocat.id)
+            .catch(() => null);
 
-        if (!membre) {
-
+        if (!avocatMember) {
           return interaction.reply({
             content:
-              "❌ Cet utilisateur n'est pas sur le serveur.",
+              "❌ Avocat introuvable.",
             ephemeral: true
           });
         }
 
-        if (
-          !estAvocat(membre)
-        ) {
-
+        if (!estAvocat(avocatMember)) {
           return interaction.reply({
             content:
               "❌ Cette personne n'a pas le rôle **Avocat**.",
@@ -1958,55 +1171,26 @@ client.on(
         }
 
         if (
-          avocat.id ===
-            plainte.accuse ||
-          avocat.id ===
-            plainte.plaignant
+          avocat.id === plainte.accuse ||
+          avocat.id === plainte.plaignant
         ) {
-
           return interaction.reply({
             content:
-              "❌ Tu ne peux pas choisir cette personne.",
+              "❌ L'avocat ne peut pas être le plaignant ou l'accusé.",
             ephemeral: true
           });
         }
 
-        plainte.avocat =
-          avocat.id;
+        plainte.avocat = avocat.id;
 
-        saveJSON(
-          DATA_FILE,
-          plaintes
-        );
+        saveData(plaintes);
 
-        const channel =
-          getChannel(
-            interaction.guild,
-            plainte.channel_id
-          );
-
-        if (channel) {
-
-          await channel.permissionOverwrites
-            .edit(
-              avocat.id,
-              {
-                ViewChannel: true,
-                SendMessages: true,
-                ReadMessageHistory: true
-              }
-            );
-
-          await channel.send(
-            `🧑‍💼 **AVOCAT DÉSIGNÉ**\n\n` +
-            `<@${avocat.id}> représente désormais l'accusé.`
-          );
-        }
+        await actualiserDossier(plainte);
 
         return interaction.reply({
           content:
-            `✅ <@${avocat.id}> a été choisi comme avocat.`,
-          ephemeral: true
+            `🧑‍💼 ${avocat} a été désigné comme avocat de l'affaire **#${id}**.`,
+          ephemeral: false
         });
       }
 
@@ -2020,9 +1204,7 @@ client.on(
       ) {
 
         const id =
-          interaction.options.getInteger(
-            "id"
-          );
+          interaction.options.getInteger("id");
 
         const representant =
           interaction.options.getUser(
@@ -2033,60 +1215,47 @@ client.on(
           getPlainte(id);
 
         if (!plainte) {
-
           return interaction.reply({
             content:
-              "❌ Affaire introuvable.",
+              "❌ Cette affaire n'existe pas.",
             ephemeral: true
           });
         }
 
-        if (
-          plainte.statut !==
-          "En attente"
-        ) {
-
+        if (plainte.statut !== "En cours") {
           return interaction.reply({
             content:
-              "❌ Cette affaire n'est plus en attente.",
+              "❌ Cette affaire est déjà terminée.",
             ephemeral: true
           });
         }
 
         if (
           interaction.user.id !==
-          plainte.plaignant
+          plainte.plaignant &&
+          !verifierJuge(interaction)
         ) {
-
           return interaction.reply({
             content:
-              "❌ Seul le plaignant peut choisir son représentant.",
+              "❌ Seul le plaignant ou un juge peut choisir le représentant.",
             ephemeral: true
           });
         }
 
         const membre =
-          await interaction.guild.members
-            .fetch(
-              representant.id
-            )
-            .catch(
-              () => null
-            );
+          await guild.members
+            .fetch(representant.id)
+            .catch(() => null);
 
         if (!membre) {
-
           return interaction.reply({
             content:
-              "❌ Cet utilisateur n'est pas sur le serveur.",
+              "❌ Représentant introuvable.",
             ephemeral: true
           });
         }
 
-        if (
-          !estRepresentant(membre)
-        ) {
-
+        if (!estRepresentant(membre)) {
           return interaction.reply({
             content:
               "❌ Cette personne n'a pas le rôle **Représentant de la défense**.",
@@ -2095,15 +1264,12 @@ client.on(
         }
 
         if (
-          representant.id ===
-            plainte.plaignant ||
-          representant.id ===
-            plainte.accuse
+          representant.id === plainte.accuse ||
+          representant.id === plainte.plaignant
         ) {
-
           return interaction.reply({
             content:
-              "❌ Tu ne peux pas choisir cette personne.",
+              "❌ Le représentant ne peut pas être le plaignant ou l'accusé.",
             ephemeral: true
           });
         }
@@ -2111,74 +1277,41 @@ client.on(
         plainte.representant =
           representant.id;
 
-        saveJSON(
-          DATA_FILE,
-          plaintes
-        );
+        saveData(plaintes);
 
-        const channel =
-          getChannel(
-            interaction.guild,
-            plainte.channel_id
-          );
-
-        if (channel) {
-
-          await channel.permissionOverwrites
-            .edit(
-              representant.id,
-              {
-                ViewChannel: true,
-                SendMessages: true,
-                ReadMessageHistory: true
-              }
-            );
-
-          await channel.send(
-            `🛡️ **REPRÉSENTANT DÉSIGNÉ**\n\n` +
-            `<@${representant.id}> représente désormais la défense.`
-          );
-        }
+        await actualiserDossier(plainte);
 
         return interaction.reply({
           content:
-            `✅ <@${representant.id}> a été choisi comme représentant.`,
-          ephemeral: true
+            `🛡️ ${representant} a été désigné représentant pour l'affaire **#${id}**.`,
+          ephemeral: false
         });
       }
 
       // ==================================================
-      // /AUDIENCE
+      // /CONDAMNER
       // ==================================================
 
       if (
         interaction.commandName ===
-        "audience"
+        "condamner"
       ) {
 
-        if (
-          !estJuge(
-            interaction.member
-          )
-        ) {
-
+        if (!verifierJuge(interaction)) {
           return interaction.reply({
             content:
-              "❌ Seul un **Juge** peut lancer une audience.",
+              "❌ Seul un juge peut rendre un verdict.",
             ephemeral: true
           });
         }
 
         const id =
-          interaction.options.getInteger(
-            "id"
-          );
+          interaction.options.getInteger("id");
 
         const plainte =
           getPlainte(id);
 
         if (!plainte) {
-
           return interaction.reply({
             content:
               "❌ Affaire introuvable.",
@@ -2186,172 +1319,63 @@ client.on(
           });
         }
 
-        if (
-          plainte.statut !==
-          "En attente"
-        ) {
-
+        if (plainte.statut !== "En cours") {
           return interaction.reply({
             content:
-              "❌ Cette affaire a déjà été jugée.",
+              "❌ Cette affaire est déjà terminée.",
             ephemeral: true
           });
         }
 
-        const channel =
-          getChannel(
-            interaction.guild,
-            plainte.channel_id
+        plainte.statut = "Condamnée";
+        plainte.juge = interaction.user.id;
+
+        saveData(plaintes);
+
+        const recompenses =
+          await donnerRecompenses(
+            plainte,
+            true
           );
 
-        if (!channel) {
-
-          return interaction.reply({
-            content:
-              "❌ Salon de l'affaire introuvable.",
-            ephemeral: true
-          });
-        }
-
-        const row =
-          new ActionRowBuilder()
-            .addComponents(
-
-              new ButtonBuilder()
-                .setCustomId(
-                  `condamner_${id}`
-                )
-                .setLabel(
-                  "Condamner"
-                )
-                .setEmoji("⚠️")
-                .setStyle(
-                  ButtonStyle.Danger
-                ),
-
-              new ButtonBuilder()
-                .setCustomId(
-                  `acquitter_${id}`
-                )
-                .setLabel(
-                  "Acquitter"
-                )
-                .setEmoji("✅")
-                .setStyle(
-                  ButtonStyle.Success
-                ),
-
-              new ButtonBuilder()
-                .setCustomId(
-                  `fermer_${id}`
-                )
-                .setLabel(
-                  "Fermer"
-                )
-                .setEmoji("🔒")
-                .setStyle(
-                  ButtonStyle.Secondary
-                )
-
-            );
-
-        await channel.send({
-
-          content:
-            `⚖️ **AUDIENCE — AFFAIRE #${id}**\n\n` +
-            `Le juge peut maintenant rendre son verdict.`,
-
-          components: [
-            row
-          ]
-
-        });
+        await actualiserDossier(plainte);
 
         return interaction.reply({
           content:
-            `⚖️ Audience de l'affaire **#${id}** lancée.`,
-          ephemeral: true
-        });
-      }
-
-      // ==================================================
-      // /PLaintes
-      // ==================================================
-
-      if (
-        interaction.commandName ===
-        "plaintes"
-      ) {
-
-        if (
-          !estJuge(
-            interaction.member
-          )
-        ) {
-
-          return interaction.reply({
-            content:
-              "❌ Seul un **Juge** peut voir les plaintes.",
-            ephemeral: true
-          });
-        }
-
-        const ouvertes =
-          plaintes.filter(
-            plainte =>
-              plainte.statut !==
-              "Fermée"
-          );
-
-        if (
-          ouvertes.length === 0
-        ) {
-
-          return interaction.reply({
-            content:
-              "📂 Aucune affaire ouverte.",
-            ephemeral: true
-          });
-        }
-
-        const texte =
-          ouvertes
-            .map(
-              plainte =>
-                `⚖️ **#${plainte.id}** — ${plainte.statut}\n` +
-                `👤 Plaignant : <@${plainte.plaignant}>\n` +
-                `⚠️ Accusé : <@${plainte.accuse}>`
+            `⚖️ **Affaire #${id} : ACCUSÉ CONDAMNÉ**\n\n` +
+            `💰 **Récompenses :**\n` +
+            (
+              recompenses.length
+                ? recompenses.join("\n")
+                : "Aucune récompense distribuée."
             )
-            .join(
-              "\n\n"
-            );
-
-        return interaction.reply({
-          content:
-            `📂 **AFFAIRES OUVERTES**\n\n${texte}`,
-          ephemeral: true
         });
       }
 
       // ==================================================
-      // /VERDICT
+      // /ACQUITTER
       // ==================================================
 
       if (
         interaction.commandName ===
-        "verdict"
+        "acquitter"
       ) {
 
+        if (!verifierJuge(interaction)) {
+          return interaction.reply({
+            content:
+              "❌ Seul un juge peut rendre un verdict.",
+            ephemeral: true
+          });
+        }
+
         const id =
-          interaction.options.getInteger(
-            "id"
-          );
+          interaction.options.getInteger("id");
 
         const plainte =
           getPlainte(id);
 
         if (!plainte) {
-
           return interaction.reply({
             content:
               "❌ Affaire introuvable.",
@@ -2359,86 +1383,108 @@ client.on(
           });
         }
 
-        let texte =
-          `⚖️ **VERDICT — AFFAIRE #${id}**\n\n`;
-
-        texte +=
-          `👤 Plaignant : <@${plainte.plaignant}>\n`;
-
-        texte +=
-          `⚠️ Accusé : <@${plainte.accuse}>\n`;
-
-        texte +=
-          `📌 Motif : ${plainte.motif}\n`;
-
-        texte +=
-          `📊 Statut : **${plainte.statut}**\n`;
-
-        if (plainte.avocat) {
-
-          texte +=
-            `🧑‍💼 Avocat : <@${plainte.avocat}>\n`;
+        if (plainte.statut !== "En cours") {
+          return interaction.reply({
+            content:
+              "❌ Cette affaire est déjà terminée.",
+            ephemeral: true
+          });
         }
 
-        if (
-          plainte.representant
-        ) {
+        plainte.statut = "Acquittée";
+        plainte.juge = interaction.user.id;
 
-          texte +=
-            `🛡️ Représentant : <@${plainte.representant}>\n`;
-        }
+        saveData(plaintes);
 
-        if (
-          plainte.verdict_par
-        ) {
+        const recompenses =
+          await donnerRecompenses(
+            plainte,
+            false
+          );
 
-          texte +=
-            `⚖️ Juge : <@${plainte.verdict_par}>`;
-        }
+        await actualiserDossier(plainte);
 
         return interaction.reply({
-          content: texte,
-          ephemeral: true
+          content:
+            `⚖️ **Affaire #${id} : ACCUSÉ ACQUITTÉ**\n\n` +
+            `💰 **Récompenses :**\n` +
+            (
+              recompenses.length
+                ? recompenses.join("\n")
+                : "Aucune récompense distribuée."
+            )
         });
-            }
-            // ==================================================
-      // /ACHETER-ROLE
+      }
+
+      // ==================================================
+      // /FERMER
       // ==================================================
 
-      if (
-        interaction.commandName ===
-        "acheter-role"
-      ) {
+      if (interaction.commandName === "fermer") {
+
+        if (!verifierJuge(interaction)) {
+          return interaction.reply({
+            content:
+              "❌ Seul un juge peut fermer une affaire.",
+            ephemeral: true
+          });
+        }
+
+        const id =
+          interaction.options.getInteger("id");
+
+        const plainte =
+          getPlainte(id);
+
+        if (!plainte) {
+          return interaction.reply({
+            content:
+              "❌ Affaire introuvable.",
+            ephemeral: true
+          });
+        }
+
+        plainte.statut = "Fermée";
+
+        saveData(plaintes);
+
+        await actualiserDossier(plainte);
+
+        return interaction.reply({
+          content:
+            `🔒 L'affaire **#${id}** est maintenant fermée.`
+        });
+}
+            // ==================================================
+      // /ACHETER
+      // ==================================================
+
+      if (interaction.commandName === "acheter") {
 
         const roleName =
-          interaction.options.getString(
-            "role"
-          );
+          interaction.options.getString("role");
 
         const prix =
           PRIX_ROLES[roleName];
 
         if (!prix) {
-
           return interaction.reply({
             content:
-              "❌ Rôle invalide.",
+              "❌ Ce rôle n'est pas disponible à l'achat.",
             ephemeral: true
           });
         }
 
-        // Le rôle est acheté une seule fois
-        // et reste définitivement possédé.
         if (
           hasPurchasedRole(
             interaction.user.id,
             roleName
           )
         ) {
-
           return interaction.reply({
             content:
-              `❌ Tu possèdes déjà le rôle **${roleName}**. Utilise \`/equiper\` pour l'équiper.`,
+              `❌ Tu possèdes déjà définitivement le rôle **${roleName}**.\n` +
+              `Tu n'as pas besoin de le racheter.`,
             ephemeral: true
           });
         }
@@ -2448,62 +1494,41 @@ client.on(
             interaction.user.id
           );
 
-        if (
-          argent === null
-        ) {
-
+        if (argent === null) {
           return interaction.reply({
             content:
-              "❌ Impossible de récupérer ton argent auprès d'UnbelievaBoat.",
+              "❌ Impossible de vérifier ton argent avec UnbelievaBoat.",
             ephemeral: true
           });
         }
 
-        if (
-          argent < prix
-        ) {
-
+        if (argent < prix) {
           return interaction.reply({
             content:
-              `❌ Tu n'as pas assez d'argent.\n` +
-              `💰 Solde : **${argent.toLocaleString("fr-FR")}**\n` +
+              `❌ Tu n'as pas assez d'argent.\n\n` +
+              `💰 Ton argent : **${argent.toLocaleString("fr-FR")}**\n` +
               `💵 Prix : **${prix.toLocaleString("fr-FR")}**`,
             ephemeral: true
           });
         }
 
-        const role =
-          getRole(
-            interaction.guild,
-            roleName
-          );
-
-        if (!role) {
-
-          return interaction.reply({
-            content:
-              `❌ Le rôle **${roleName}** n'existe pas sur le serveur.`,
-            ephemeral: true
-          });
-        }
-
+        // Retrait du prix
         const paiement =
           await modifierArgent(
             interaction.user.id,
             -prix,
-            `Achat définitif du rôle ${roleName}`
+            `Achat du rôle ${roleName}`
           );
 
         if (!paiement) {
-
           return interaction.reply({
             content:
-              "❌ Le paiement a échoué.",
+              "❌ Le paiement n'a pas pu être effectué.",
             ephemeral: true
           });
         }
 
-        // Le rôle est enregistré définitivement
+        // Le rôle acheté reste définitivement possédé
         addPurchasedRole(
           interaction.user.id,
           roleName
@@ -2511,12 +1536,11 @@ client.on(
 
         return interaction.reply({
           content:
-            `🎉 **Rôle acheté définitivement !**\n\n` +
-            `🎭 Rôle : **${roleName}**\n` +
+            `✅ **Achat effectué !**\n\n` +
+            `🎫 Rôle : **${roleName}**\n` +
             `💰 Prix : **${prix.toLocaleString("fr-FR")}**\n\n` +
-            `➡️ Tu le possèdes maintenant définitivement.\n` +
-            `🎭 Pour l'équiper, utilise \`/equiper role:${roleName}\`.\n` +
-            `⏱️ L'équipement/changement est disponible toutes les **24 heures**.`,
+            `📦 Tu possèdes maintenant définitivement ce rôle.\n` +
+            `⚠️ L'achat n'a pas besoin d'être refait.`,
           ephemeral: true
         });
       }
@@ -2525,120 +1549,104 @@ client.on(
       // /EQUIPER
       // ==================================================
 
-      if (
-        interaction.commandName ===
-        "equiper"
-      ) {
+      if (interaction.commandName === "equiper") {
 
         const roleName =
-          interaction.options.getString(
-            "role"
-          );
+          interaction.options.getString("role");
 
-        const data =
-          getRoleData(
-            interaction.user.id
-          );
-
-        // Vérifier possession
         if (
-          !data.achetes.includes(
+          !hasPurchasedRole(
+            interaction.user.id,
             roleName
           )
         ) {
-
           return interaction.reply({
             content:
-              `❌ Tu ne possèdes pas le rôle **${roleName}**.`,
+              `❌ Tu ne possèdes pas le rôle **${roleName}**.\n` +
+              `Tu dois d'abord l'acheter avec \`/acheter\`.`,
             ephemeral: true
           });
         }
 
-        // Si c'est déjà le rôle équipé
         if (
-          data.roleEquipe ===
-          roleName
-        ) {
-
-          return interaction.reply({
-            content:
-              `🎭 Le rôle **${roleName}** est déjà équipé.`,
-            ephemeral: true
-          });
-        }
-
-        // Vérification des 24 heures
-        if (
-          !peutEquiper(
+          !canEquipRole(
             interaction.user.id
           )
         ) {
-
           const restant =
-            tempsRestantEquipement(
+            getRemainingEquipTime(
               interaction.user.id
-            );
-
-          const heures =
-            Math.floor(
-              restant /
-              (60 * 60 * 1000)
-            );
-
-          const minutes =
-            Math.floor(
-              (
-                restant %
-                (60 * 60 * 1000)
-              ) /
-              (60 * 1000)
             );
 
           return interaction.reply({
             content:
-              `⏱️ Tu dois encore attendre **${heures}h ${minutes}min** avant de pouvoir changer de rôle équipé.`,
+              `⏳ Tu dois attendre encore **${formatTemps(restant)}** avant de pouvoir équiper un rôle.\n\n` +
+              `💡 Tu possèdes toujours définitivement tes rôles : ` +
+              `seul leur **équipement** est limité à 1 fois toutes les 24 h.`,
             ephemeral: true
           });
         }
 
         const role =
           getRole(
-            interaction.guild,
+            guild,
             roleName
           );
 
         if (!role) {
-
           return interaction.reply({
             content:
-              `❌ Le rôle **${roleName}** n'existe plus sur le serveur.`,
+              `❌ Le rôle **${roleName}** n'existe pas sur le serveur.`,
             ephemeral: true
           });
         }
 
-        // Vérification hiérarchie
+        // ==================================================
+        // VÉRIFICATION DE LA HIÉRARCHIE DU BOT
+        // ==================================================
+
+        const botMember =
+          guild.members.me;
+
+        if (!botMember) {
+          return interaction.reply({
+            content:
+              "❌ Impossible de trouver le bot sur le serveur.",
+            ephemeral: true
+          });
+        }
+
         if (
           role.position >=
-          interaction.guild.members.me.roles.highest.position
+          botMember.roles.highest.position
         ) {
-
           return interaction.reply({
             content:
-              `❌ Je ne peux pas équiper **${roleName}** car ce rôle est au-dessus de mon rôle **Tribunal**.\n\n` +
-              `➡️ Va dans **Paramètres du serveur → Rôles** et place le rôle **Tribunal au-dessus de ${roleName}**.`,
+              `❌ Je ne peux pas donner le rôle **${roleName}** car il est au-dessus ou au même niveau que mon rôle.\n\n` +
+              `➡️ Dans les paramètres du serveur, place le rôle **Tribunal** au-dessus de **${roleName}**.`,
             ephemeral: true
           });
         }
 
-        // Retirer l'ancien rôle équipé
-        if (
-          data.roleEquipe
-        ) {
+        // Retirer les anciens rôles achetés
+        // avant d'équiper le nouveau
+        const rolesAchetes =
+          getUserOwnedRoles(
+            interaction.user.id
+          );
+
+        for (const ancienRoleName of rolesAchetes) {
+
+          if (
+            ancienRoleName === roleName
+          ) {
+            continue;
+          }
 
           const ancienRole =
             getRole(
-              interaction.guild,
-              data.roleEquipe
+              guild,
+              ancienRoleName
             );
 
           if (
@@ -2647,155 +1655,147 @@ client.on(
               ancienRole.id
             )
           ) {
-
-            try {
-
-              await interaction.member.roles.remove(
-                ancienRole
-              );
-
-            } catch (error) {
-
-              console.error(
-                "❌ Erreur retrait ancien rôle :",
-                error
-              );
-            }
+            await interaction.member.roles
+              .remove(ancienRole)
+              .catch(error => {
+                console.error(
+                  `❌ Impossible de retirer ${ancienRoleName} :`,
+                  error
+                );
+              });
           }
         }
 
-        // Ajouter le nouveau rôle
+        // Donner le nouveau rôle
         try {
 
           await interaction.member.roles.add(
-            role
+            role,
+            `Équipement du rôle ${roleName}`
           );
 
         } catch (error) {
 
           console.error(
-            "❌ Erreur équipement rôle :",
+            "❌ Erreur attribution rôle :",
             error
           );
 
           return interaction.reply({
             content:
-              "❌ Impossible d'équiper ce rôle. Vérifie que le rôle **Tribunal** est au-dessus du rôle à équiper.",
+              `❌ Impossible de donner le rôle **${roleName}**.\n\n` +
+              `Vérifie que le rôle **Tribunal** est placé **au-dessus** du rôle que tu veux équiper.`,
             ephemeral: true
           });
         }
 
-        // Sauvegarder équipement
-        data.roleEquipe =
-          roleName;
-
-        data.dernierEquipement =
-          Date.now();
-
-        saveJSON(
-          ROLES_FILE,
-          rolesData
+        // Démarrage du délai de 24 h
+        setRoleEquippedNow(
+          interaction.user.id
         );
 
         return interaction.reply({
           content:
-            `🎭 **Rôle équipé !**\n\n` +
-            `Tu as équipé **${roleName}**.\n` +
-            `⏱️ Tu pourras changer de rôle dans **24 heures**.`,
+            `✅ **Rôle équipé !**\n\n` +
+            `🎫 **${roleName}** t'a été donné.\n\n` +
+            `⏳ Tu pourras changer de rôle dans **24 heures**.\n` +
+            `📦 Tu gardes définitivement tous les rôles que tu as achetés.`,
           ephemeral: true
         });
       }
 
       // ==================================================
-      // /MES-ROLES
+      // /ROLES
       // ==================================================
 
-      if (
-        interaction.commandName ===
-        "mes-roles"
-      ) {
+      if (interaction.commandName === "roles") {
 
-        const data =
-          getRoleData(
+        const roles =
+          getUserOwnedRoles(
             interaction.user.id
           );
 
-        if (
-          data.achetes.length ===
-          0
-        ) {
-
+        if (roles.length === 0) {
           return interaction.reply({
             content:
-              "🎭 Tu ne possèdes encore aucun rôle acheté.",
+              "📦 Tu ne possèdes encore aucun rôle acheté.",
             ephemeral: true
           });
         }
 
         const liste =
-          data.achetes
-            .map(
-              roleName => {
-
-                if (
-                  data.roleEquipe ===
-                  roleName
-                ) {
-
-                  return `• 🎭 **${roleName}** — **ÉQUIPÉ**`;
-                }
-
-                return `• ${roleName}`;
-
-              }
-            )
+          roles
+            .map(role => `🎫 **${role}**`)
             .join("\n");
 
         return interaction.reply({
           content:
-            `🎭 **TES RÔLES POSSÉDÉS**\n\n` +
-            liste +
-            `\n\n💡 Tu peux équiper un rôle avec \`/equiper\`.`,
+            `📦 **TES RÔLES POSSÉDÉS DÉFINITIVEMENT**\n\n` +
+            `${liste}\n\n` +
+            `⚠️ Tu peux équiper un rôle avec \`/equiper\`.\n` +
+            `⏳ L'équipement est limité à **1 fois toutes les 24 h**.`,
           ephemeral: true
+        });
+      }
+
+      // ==================================================
+      // /AIDE
+      // ==================================================
+
+      if (interaction.commandName === "aide") {
+
+        return interaction.reply({
+          content:
+            `⚖️ **TRIBUNAL — COMMANDES**\n\n` +
+
+            `📝 \`/plainte\` — Déposer une plainte.\n` +
+            `📂 \`/plaintes\` — Voir les affaires (Juge).\n` +
+            `🧑‍💼 \`/avocat\` — Choisir un avocat.\n` +
+            `🛡️ \`/representant\` — Choisir un représentant.\n` +
+            `⚖️ \`/condamner\` — Condamner (Juge).\n` +
+            `⚖️ \`/acquitter\` — Acquitter (Juge).\n` +
+            `🔒 \`/fermer\` — Fermer une affaire (Juge).\n\n` +
+
+            `🛒 \`/acheter\` — Acheter un rôle.\n` +
+            `🎫 \`/equiper\` — Équiper un rôle acheté.\n` +
+            `📦 \`/roles\` — Voir ses rôles achetés.\n\n` +
+
+            `⏳ Les rôles achetés sont **définitifs**.\n` +
+            `🔄 L'équipement d'un rôle est limité à **1 fois toutes les 24 h**.\n\n` +
+
+            `⚠️ **Important :** les Juges peuvent eux aussi utiliser \`/plainte\` et peuvent être accusés.`
         });
       }
 
     } catch (error) {
 
       console.error(
-        "❌ Erreur InteractionCreate :",
+        "❌ Erreur interaction :",
         error
       );
 
-      try {
+      if (interaction.replied || interaction.deferred) {
 
-        if (
-          interaction.replied ||
-          interaction.deferred
-        ) {
+        await interaction.followUp({
+          content:
+            "❌ Une erreur est survenue.",
+          ephemeral: true
+        }).catch(() => {});
 
-          await interaction.followUp({
-            content:
-              "❌ Une erreur est survenue.",
-            ephemeral: true
-          });
+      } else {
 
-        } else {
-
-          await interaction.reply({
-            content:
-              "❌ Une erreur est survenue.",
-            ephemeral: true
-          });
-        }
-
-      } catch {}
+        await interaction.reply({
+          content:
+            "❌ Une erreur est survenue.",
+          ephemeral: true
+        }).catch(() => {});
+      }
     }
   }
 );
 
 // ======================================================
-// CONNEXION DU BOT
+// DÉMARRAGE DU BOT
 // ======================================================
 
 client.once(
@@ -2803,21 +1803,33 @@ client.once(
   async readyClient => {
 
     console.log(
-      `✅ Tribunal connecté : ${readyClient.user.tag}`
+      `✅ Tribunal connecté en tant que ${readyClient.user.tag}`
     );
-
-    await enregistrerCommandes();
 
     console.log(
-      "⚖️ Tribunal prêt !"
+      `🏛️ Serveur configuré : ${GUILD_ID}`
     );
+
+    try {
+      await enregistrerCommandes();
+    } catch (error) {
+      console.error(
+        "❌ Erreur initialisation commandes :",
+        error
+      );
+    }
   }
 );
 
 // ======================================================
-// LOGIN
+// CONNEXION
 // ======================================================
 
-client.login(
-  TOKEN
-);
+client.login(TOKEN).catch(error => {
+
+  console.error(
+    "❌ Impossible de connecter le bot :",
+    error
+  );
+
+});
