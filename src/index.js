@@ -1731,12 +1731,6 @@ client.on(
         "plainte"
       ) {
 
-        if (
-          estJuge(
-            interaction.member
-          )
-        ) {
-
           return interaction.reply({
             content:
               "❌ Un juge ne peut pas porter plainte.",
