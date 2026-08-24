@@ -6,7 +6,10 @@ const {
   PermissionFlagsBits,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  SlashCommandBuilder,
+  REST,
+  Routes
 } = require("discord.js");
 
 const fs = require("fs");
