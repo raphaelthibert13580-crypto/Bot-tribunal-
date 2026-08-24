@@ -5,6 +5,7 @@ const {
 } = require("discord.js");
 
 const commands = [
+
   // ==========================
   // /plainte
   // ==========================
@@ -142,17 +143,46 @@ const commands = [
     ),
 
   // ==========================
+  // /representant
+  // ==========================
+
+  new SlashCommandBuilder()
+    .setName("representant")
+    .setDescription("Choisir un représentant de la défense")
+    .addIntegerOption(option =>
+      option
+        .setName("id")
+        .setDescription("Numéro de l'affaire")
+        .setRequired(true)
+    )
+    .addUserOption(option =>
+      option
+        .setName("representant")
+        .setDescription("Le représentant choisi")
+        .setRequired(true)
+    ),
+
+  // ==========================
+  // /roles
+  // ==========================
+
+  new SlashCommandBuilder()
+    .setName("roles")
+    .setDescription("Acheter, équiper ou gérer tes rôles"),
+
+  // ==========================
   // /aide
   // ==========================
 
   new SlashCommandBuilder()
     .setName("aide")
     .setDescription("Afficher l'aide du Tribunal")
+
 ].map(command => command.toJSON());
 
 
 // ==========================
-// DISCORD REST
+// VÉRIFICATIONS
 // ==========================
 
 if (!process.env.DISCORD_TOKEN) {
@@ -167,6 +197,11 @@ if (!process.env.GUILD_ID) {
   throw new Error("GUILD_ID est manquant.");
 }
 
+
+// ==========================
+// DISCORD REST
+// ==========================
+
 const rest = new REST({ version: "10" })
   .setToken(process.env.DISCORD_TOKEN);
 
@@ -176,28 +211,39 @@ const rest = new REST({ version: "10" })
 // ==========================
 
 async function deploy() {
+
   console.log("⚖️ Enregistrement des commandes...");
 
-  await rest.put(
-    Routes.applicationGuildCommands(
-      process.env.CLIENT_ID,
-      process.env.GUILD_ID
-    ),
-    {
-      body: commands
-    }
-  );
+  try {
 
-  console.log(
-    `✅ ${commands.length} commandes enregistrées.`
-  );
+    const result = await rest.put(
+      Routes.applicationGuildCommands(
+        process.env.CLIENT_ID,
+        process.env.GUILD_ID
+      ),
+      {
+        body: commands
+      }
+    );
+
+    console.log(
+      `✅ ${result.length} commandes enregistrées.`
+    );
+
+    console.log(
+      "📋 Commandes :",
+      result.map(command => `/${command.name}`).join(", ")
+    );
+
+  } catch (error) {
+
+    console.error(
+      "❌ Erreur lors de l'enregistrement des commandes :",
+      error
+    );
+
+    process.exit(1);
+  }
 }
 
-deploy().catch(error => {
-  console.error(
-    "❌ Erreur lors de l'enregistrement des commandes :",
-    error
-  );
-
-  process.exit(1);
-});
+deploy();
